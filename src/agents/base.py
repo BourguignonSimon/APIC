@@ -11,6 +11,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -53,6 +59,24 @@ def get_llm(
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=settings.ANTHROPIC_API_KEY,
+        )
+    elif provider == "google":
+        if not GOOGLE_AVAILABLE:
+            raise ImportError(
+                "Google Generative AI not available. "
+                "Install with: pip install langchain-google-genai"
+            )
+        if not settings.GOOGLE_API_KEY:
+            raise ValueError(
+                "Google API key not found. "
+                "Set GOOGLE_API_KEY in your environment variables."
+            )
+        model = model or settings.GOOGLE_MODEL
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            google_api_key=settings.GOOGLE_API_KEY,
         )
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")

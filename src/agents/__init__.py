@@ -10,6 +10,7 @@ from .interview import InterviewArchitectAgent
 from .gap_analyst import GapAnalystAgent
 from .solution import SolutionArchitectAgent
 from .reporting import ReportingAgent
+from .google_adk import GoogleADKAgent, GoogleVertexAIAgent
 
 __all__ = [
     "BaseAgent",
@@ -20,4 +21,6 @@ __all__ = [
     "GapAnalystAgent",
     "SolutionArchitectAgent",
     "ReportingAgent",
+    "GoogleADKAgent",
+    "GoogleVertexAIAgent",
 ]

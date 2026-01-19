@@ -19,6 +19,7 @@ from src.agents import (
     GapAnalystAgent,
     SolutionArchitectAgent,
     ReportingAgent,
+    GoogleADKAgent,
 )
 from src.models.schemas import GraphState, Project, ProjectStatus
 from config.settings import settings
@@ -85,14 +86,23 @@ class ConsultantGraph:
     6. Reporting Engine
     """
 
-    def __init__(self, checkpointer: Optional[MemorySaver] = None):
+    def __init__(
+        self,
+        checkpointer: Optional[MemorySaver] = None,
+        llm_provider: Optional[str] = None,
+        use_google_adk: bool = False,
+    ):
         """
         Initialize the Consultant Graph.
 
         Args:
             checkpointer: State checkpointer for persistence
+            llm_provider: LLM provider to use (openai, anthropic, or google)
+            use_google_adk: Whether to include Google ADK enhanced analysis
         """
         self.checkpointer = checkpointer or MemorySaver()
+        self.llm_provider = llm_provider or settings.DEFAULT_LLM_PROVIDER
+        self.use_google_adk = use_google_adk
 
         # Initialize agents
         self.ingestion_agent = IngestionAgent()
@@ -101,6 +111,18 @@ class ConsultantGraph:
         self.gap_analyst = GapAnalystAgent()
         self.solution_agent = SolutionArchitectAgent()
         self.reporting_agent = ReportingAgent()
+
+        # Initialize Google ADK agent if enabled
+        if self.use_google_adk:
+            try:
+                self.google_adk_agent = GoogleADKAgent()
+                logger.info("Google ADK agent initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Google ADK agent: {e}")
+                self.google_adk_agent = None
+                self.use_google_adk = False
+        else:
+            self.google_adk_agent = None
 
         # Build the workflow graph
         self.workflow = self._build_graph()
@@ -123,11 +145,21 @@ class ConsultantGraph:
         builder.add_node("solution", self._run_solution)
         builder.add_node("reporting", self._run_reporting)
 
+        # Add Google ADK node if enabled
+        if self.use_google_adk and self.google_adk_agent:
+            builder.add_node("google_adk", self._run_google_adk)
+
         # Define edges
         builder.set_entry_point("ingestion")
 
         builder.add_edge("ingestion", "hypothesis")
-        builder.add_edge("hypothesis", "interview")
+
+        # If Google ADK is enabled, route through it before interview
+        if self.use_google_adk and self.google_adk_agent:
+            builder.add_edge("hypothesis", "google_adk")
+            builder.add_edge("google_adk", "interview")
+        else:
+            builder.add_edge("hypothesis", "interview")
 
         # Conditional edge after interview (human breakpoint)
         builder.add_conditional_edges(
@@ -181,6 +213,16 @@ class ConsultantGraph:
         logger.info("Running reporting engine node")
         result = await self.reporting_agent.process(dict(state))
         return result
+
+    async def _run_google_adk(self, state: WorkflowState) -> WorkflowState:
+        """Run the Google ADK enhanced analysis node."""
+        logger.info("Running Google ADK enhanced analysis node")
+        if self.google_adk_agent:
+            result = await self.google_adk_agent.process(dict(state))
+            return result
+        else:
+            logger.warning("Google ADK agent not available, skipping")
+            return state
 
     def _should_wait_for_transcript(self, state: WorkflowState) -> str:
         """

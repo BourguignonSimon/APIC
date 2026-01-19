@@ -21,13 +21,19 @@ class Settings(BaseSettings):
     # API Keys
     OPENAI_API_KEY: Optional[str] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
+    GOOGLE_API_KEY: Optional[str] = Field(default=None)
 
     # LLM Configuration
-    DEFAULT_LLM_PROVIDER: str = Field(default="openai")  # "openai" or "anthropic"
+    DEFAULT_LLM_PROVIDER: str = Field(default="openai")  # "openai", "anthropic", or "google"
     OPENAI_MODEL: str = Field(default="gpt-4o")
     ANTHROPIC_MODEL: str = Field(default="claude-3-5-sonnet-20241022")
+    GOOGLE_MODEL: str = Field(default="gemini-1.5-pro")
     LLM_TEMPERATURE: float = Field(default=0.7)
     LLM_MAX_TOKENS: int = Field(default=4096)
+
+    # Google Vertex AI Configuration (optional)
+    VERTEX_AI_PROJECT_ID: Optional[str] = Field(default=None)
+    VERTEX_AI_LOCATION: str = Field(default="us-central1")
 
     # Vector Database (Pinecone)
     PINECONE_API_KEY: Optional[str] = Field(default=None)

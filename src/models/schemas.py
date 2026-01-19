@@ -50,6 +50,15 @@ class TaskCategory(str, Enum):
     HUMAN_ONLY = "Human Only"
 
 
+class InsightType(str, Enum):
+    """Type of Google ADK insight."""
+    PATTERN_DETECTION = "pattern_detection"
+    EFFICIENCY_OPPORTUNITY = "efficiency_opportunity"
+    RISK_IDENTIFICATION = "risk_identification"
+    PROCESS_OPTIMIZATION = "process_optimization"
+    GENERAL_ANALYSIS = "general_analysis"
+
+
 # ============================================================================
 # Project Models
 # ============================================================================
@@ -263,6 +272,50 @@ class Report(BaseModel):
 
 
 # ============================================================================
+# Google ADK Models
+# ============================================================================
+
+class GoogleInsight(BaseModel):
+    """Model for Google ADK-generated insights."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    insight_type: InsightType
+    description: str = Field(..., description="Detailed description of the insight")
+    confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score (0-1)"
+    )
+    source: str = Field(default="google_gemini", description="Source of the insight")
+    recommended_actions: List[str] = Field(
+        default_factory=list,
+        description="Specific actions recommended"
+    )
+    related_hypotheses: List[str] = Field(
+        default_factory=list,
+        description="IDs of related hypotheses"
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MultimodalAnalysisResult(BaseModel):
+    """Result from Google Gemini multimodal analysis."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    image_count: int = Field(default=0, description="Number of images analyzed")
+    analysis_summary: str = Field(..., description="Summary of multimodal analysis")
+    identified_processes: List[str] = Field(
+        default_factory=list,
+        description="Processes identified from visual data"
+    )
+    identified_inefficiencies: List[str] = Field(
+        default_factory=list,
+        description="Inefficiencies identified from visual analysis"
+    )
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============================================================================
 # LangGraph State Models
 # ============================================================================
 
@@ -307,6 +360,12 @@ class GraphState(BaseModel):
     report: Optional[Report] = None
     report_complete: bool = False
     report_pdf_path: Optional[str] = None
+
+    # Google ADK outputs
+    google_insights: List[GoogleInsight] = Field(default_factory=list)
+    google_adk_complete: bool = False
+    multimodal_analysis: Optional[MultimodalAnalysisResult] = None
+    llm_provider: str = Field(default="openai", description="LLM provider in use")
 
     # Workflow metadata
     current_node: str = "start"
