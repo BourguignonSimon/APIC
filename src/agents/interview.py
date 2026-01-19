@@ -191,7 +191,12 @@ class InterviewArchitectAgent(BaseAgent):
                 content = content.strip()
 
             roles = json.loads(content)
-            return roles if isinstance(roles, list) else ["Operations Manager"]
+            # Ensure all roles are strings
+            if isinstance(roles, list):
+                roles = [str(role) if not isinstance(role, str) else role for role in roles]
+                return roles
+            else:
+                return ["Operations Manager"]
         except Exception:
             return ["Operations Manager", "Department Head", "Process Owner"]
 
