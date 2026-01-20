@@ -92,21 +92,12 @@ def create_app() -> FastAPI:
         )
 
     # Include routers
-    from src.api.routes import projects, documents, workflow
+    from src.api.routes import projects, documents, workflow, health
 
     app.include_router(projects.router, prefix="/api/v1", tags=["Projects"])
     app.include_router(documents.router, prefix="/api/v1", tags=["Documents"])
     app.include_router(workflow.router, prefix="/api/v1", tags=["Workflow"])
-
-    # Health check endpoint
-    @app.get("/health", tags=["Health"])
-    async def health_check():
-        """Check API health status."""
-        return {
-            "status": "healthy",
-            "service": "APIC API",
-            "version": settings.APP_VERSION,
-        }
+    app.include_router(health.router, tags=["Health"])
 
     # Root endpoint
     @app.get("/", tags=["Root"])

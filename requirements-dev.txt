@@ -1,0 +1,42 @@
+# APIC Development Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Include production dependencies
+-r requirements.txt
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+httpx>=0.27.0
+respx>=0.21.0
+
+# Code Formatting
+black>=24.0.0
+isort>=5.13.0
+
+# Linting
+ruff>=0.4.0
+flake8>=7.0.0
+pylint>=3.0.0
+
+# Type Checking
+mypy>=1.8.0
+types-requests>=2.31.0
+
+# Pre-commit Hooks
+pre-commit>=3.6.0
+
+# Documentation
+sphinx>=7.0.0
+sphinx-rtd-theme>=2.0.0
+
+# Development Utilities
+ipython>=8.0.0
+rich>=13.7.0
+watchdog>=4.0.0
+
+# Security Scanning
+bandit>=1.7.0
+safety>=3.0.0
