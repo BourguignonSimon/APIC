@@ -92,6 +92,34 @@ APIC uses a **State Graph architecture** implemented with LangGraph, enabling co
 
 ### Installation
 
+#### Option 1: Automated Installation (Recommended)
+
+Use the provided installation script that handles network timeouts and retries automatically:
+
+**Linux/macOS:**
+```bash
+git clone https://github.com/your-org/apic.git
+cd apic
+./install.sh
+```
+
+**Windows:**
+```bash
+git clone https://github.com/your-org/apic.git
+cd apic
+install.bat
+```
+
+The installation script will:
+- Check Python version compatibility (3.11+ required)
+- Create and activate a virtual environment (if needed)
+- Install dependencies with automatic retry logic
+- Verify the installation
+
+#### Option 2: Manual Installation
+
+If you prefer manual installation or encounter issues with the automated script:
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/your-org/apic.git
@@ -104,10 +132,24 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install dependencies:
+3. Install dependencies with increased timeout:
 ```bash
-pip install -r requirements.txt
+# Use pip configuration file for better timeout handling
+export PIP_CONFIG_FILE=pip.conf  # On Windows: set PIP_CONFIG_FILE=pip.conf
+
+# Install with retry logic
+pip install -r requirements.txt --timeout 300 --retries 5
+
+# Optional: Install development dependencies
+pip install -r requirements-dev.txt --timeout 300 --retries 5
 ```
+
+**Troubleshooting installation timeouts:**
+- If you experience network timeout errors, the `pip.conf` file is pre-configured with:
+  - Extended timeout (300 seconds)
+  - Automatic retries (5 attempts)
+  - Prefer binary packages to reduce build time
+- You can manually retry failed installations or install packages individually
 
 4. Configure environment:
 ```bash
