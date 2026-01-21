@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config.settings import settings
 
@@ -26,7 +27,7 @@ def get_llm(
     Factory function to get the appropriate LLM instance.
 
     Args:
-        provider: LLM provider ("openai" or "anthropic")
+        provider: LLM provider ("openai", "anthropic", or "google")
         model: Model name to use
         temperature: Temperature for generation
         max_tokens: Maximum tokens for generation
@@ -53,6 +54,14 @@ def get_llm(
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=settings.ANTHROPIC_API_KEY,
+        )
+    elif provider == "google":
+        model = model or settings.GOOGLE_MODEL
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            google_api_key=settings.GOOGLE_API_KEY,
         )
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
