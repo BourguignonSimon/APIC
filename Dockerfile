@@ -1,7 +1,7 @@
 # APIC Dockerfile
 # Multi-stage build for the Agentic Process Improvement Consultant
 
-FROM python:3.11-slim as base
+FROM python:3.11-slim AS base
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -33,7 +33,7 @@ RUN mkdir -p uploads reports
 # ============================================================================
 # API Stage
 # ============================================================================
-FROM base as api
+FROM base AS api
 
 EXPOSE 8000
 
@@ -42,7 +42,7 @@ CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # ============================================================================
 # Frontend Stage
 # ============================================================================
-FROM base as frontend
+FROM base AS frontend
 
 EXPOSE 8501
 
