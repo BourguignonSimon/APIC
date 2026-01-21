@@ -109,6 +109,42 @@ check_docker() {
     fi
 }
 
+stop_existing_containers() {
+    log "Checking for existing APIC containers..."
+
+    # Define APIC container names
+    local containers=("apic-postgres" "apic-api" "apic-frontend")
+    local stopped_any=false
+
+    for container in "${containers[@]}"; do
+        # Check if container exists and is running
+        if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
+            log "Stopping running container: $container"
+            docker stop "$container" &> /dev/null
+            stopped_any=true
+        fi
+    done
+
+    # Also stop any containers from docker-compose in this project
+    if [ -f "${PROJECT_ROOT}/docker-compose.yml" ]; then
+        # Check if any project containers are running via docker-compose
+        cd "$PROJECT_ROOT"
+        local running_services
+        running_services=$(docker-compose ps --services --filter "status=running" 2>/dev/null || true)
+        if [ -n "$running_services" ]; then
+            log "Stopping existing docker-compose services..."
+            docker-compose stop &> /dev/null
+            stopped_any=true
+        fi
+    fi
+
+    if [ "$stopped_any" = true ]; then
+        success "Existing containers stopped"
+    else
+        log "No existing APIC containers running"
+    fi
+}
+
 # ============================================================================
 # Setup Functions
 # ============================================================================
@@ -296,6 +332,9 @@ docker_install() {
 
     create_directories
     setup_environment
+
+    # Stop any existing APIC containers to avoid conflicts
+    stop_existing_containers
 
     log "Building and starting Docker containers..."
     cd "$PROJECT_ROOT"
