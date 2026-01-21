@@ -52,8 +52,8 @@ class Settings(BaseSettings):
     # Anthropic API key - Get from https://console.anthropic.com/
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
 
-    # Google AI API key - Get from https://makersuite.google.com/app/apikey
-    # Required for using Gemini models (e.g., gemini-1.5-flash, gemini-1.5-pro)
+    # Google AI API key - Get from https://aistudio.google.com/apikey
+    # Required for using Gemini models (e.g., gemini-2.5-flash, gemini-2.5-pro)
     GOOGLE_API_KEY: Optional[str] = Field(default=None)
 
     # =========================================================================
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # Model identifiers for each provider
     OPENAI_MODEL: str = Field(default="gpt-4o")
     ANTHROPIC_MODEL: str = Field(default="claude-3-5-sonnet-20241022")
-    GOOGLE_MODEL: str = Field(default="gemini-1.5-flash")  # Gemini model to use
+    GOOGLE_MODEL: str = Field(default="gemini-2.5-flash")  # Gemini model to use
 
     # Generation parameters affecting response style
     LLM_TEMPERATURE: float = Field(default=0.7)  # 0.0 = deterministic, 1.0 = creative
