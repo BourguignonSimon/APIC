@@ -87,8 +87,8 @@ check_postgres() {
         success "PostgreSQL client found"
         return 0
     else
-        warning "PostgreSQL client not found (optional for Docker setup)"
-        return 0  # Not a hard requirement
+        error "PostgreSQL client not found. Please install PostgreSQL (e.g., 'sudo apt install postgresql-client' or 'brew install postgresql')"
+        return 1
     fi
 }
 
@@ -265,7 +265,7 @@ full_install() {
     # Prerequisites
     check_python || exit 1
     check_pip || exit 1
-    check_postgres
+    check_postgres || exit 1
     check_docker
 
     echo ""
