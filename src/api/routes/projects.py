@@ -116,6 +116,24 @@ async def list_projects():
 
 
 @router.get(
+    "/projects/suspended",
+    response_model=List[SuspendedProjectResponse],
+    summary="Get suspended projects",
+    description="Get all projects that are suspended awaiting input.",
+)
+async def get_suspended_projects():
+    """Get all projects waiting at the human breakpoint."""
+    try:
+        suspended = state_manager.get_suspended_projects()
+        return [SuspendedProjectResponse(**p) for p in suspended]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get suspended projects: {str(e)}",
+        )
+
+
+@router.get(
     "/projects/{project_id}",
     response_model=ProjectResponse,
     summary="Get project details",
@@ -135,24 +153,6 @@ async def get_project(project_id: str):
     project["thread_id"] = thread_id
 
     return ProjectResponse(**project)
-
-
-@router.get(
-    "/projects/suspended",
-    response_model=List[SuspendedProjectResponse],
-    summary="Get suspended projects",
-    description="Get all projects that are suspended awaiting input.",
-)
-async def get_suspended_projects():
-    """Get all projects waiting at the human breakpoint."""
-    try:
-        suspended = state_manager.get_suspended_projects()
-        return [SuspendedProjectResponse(**p) for p in suspended]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get suspended projects: {str(e)}",
-        )
 
 
 @router.patch(

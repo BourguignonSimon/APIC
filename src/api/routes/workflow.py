@@ -79,6 +79,28 @@ class InterviewScriptResponse(BaseModel):
     estimated_duration_minutes: int
 
 
+class HypothesesResponse(BaseModel):
+    """Response model for hypotheses."""
+    project_id: str
+    hypotheses: List[Dict[str, Any]]
+    count: int
+
+
+class GapsResponse(BaseModel):
+    """Response model for gap analysis."""
+    project_id: str
+    gap_analyses: List[Dict[str, Any]]
+    count: int
+
+
+class SolutionsResponse(BaseModel):
+    """Response model for solutions."""
+    project_id: str
+    solutions: List[Dict[str, Any]]
+    recommendations: List[Dict[str, Any]]
+    count: int
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -332,6 +354,7 @@ async def get_report(project_id: str):
 
 @router.get(
     "/workflow/{project_id}/hypotheses",
+    response_model=HypothesesResponse,
     summary="Get hypotheses",
     description="Get generated hypotheses for a project.",
 )
@@ -345,15 +368,16 @@ async def get_hypotheses(project_id: str):
             detail="No workflow state found.",
         )
 
-    return {
-        "project_id": project_id,
-        "hypotheses": state.get("hypotheses", []),
-        "count": len(state.get("hypotheses", [])),
-    }
+    return HypothesesResponse(
+        project_id=project_id,
+        hypotheses=state.get("hypotheses", []),
+        count=len(state.get("hypotheses", [])),
+    )
 
 
 @router.get(
     "/workflow/{project_id}/gaps",
+    response_model=GapsResponse,
     summary="Get gap analysis",
     description="Get gap analysis results for a project.",
 )
@@ -367,15 +391,16 @@ async def get_gaps(project_id: str):
             detail="No workflow state found.",
         )
 
-    return {
-        "project_id": project_id,
-        "gap_analyses": state.get("gap_analyses", []),
-        "count": len(state.get("gap_analyses", [])),
-    }
+    return GapsResponse(
+        project_id=project_id,
+        gap_analyses=state.get("gap_analyses", []),
+        count=len(state.get("gap_analyses", [])),
+    )
 
 
 @router.get(
     "/workflow/{project_id}/solutions",
+    response_model=SolutionsResponse,
     summary="Get solutions",
     description="Get solution recommendations for a project.",
 )
@@ -389,9 +414,9 @@ async def get_solutions(project_id: str):
             detail="No workflow state found.",
         )
 
-    return {
-        "project_id": project_id,
-        "solutions": state.get("solutions", []),
-        "recommendations": state.get("solution_recommendations", []),
-        "count": len(state.get("solutions", [])),
-    }
+    return SolutionsResponse(
+        project_id=project_id,
+        solutions=state.get("solutions", []),
+        recommendations=state.get("solution_recommendations", []),
+        count=len(state.get("solutions", [])),
+    )
