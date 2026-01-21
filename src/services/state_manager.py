@@ -392,6 +392,7 @@ class StateManager:
             return [
                 {
                     "id": d.id,
+                    "project_id": d.project_id,
                     "filename": d.filename,
                     "file_type": d.file_type,
                     "file_size": int(d.file_size),
