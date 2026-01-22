@@ -21,7 +21,7 @@ from src.agents import (
     ReportingAgent,
 )
 from src.models.schemas import GraphState, Project, ProjectStatus
-from config.settings import settings
+from config.settings import settings, get_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +94,28 @@ class ConsultantGraph:
         """
         self.checkpointer = checkpointer or MemorySaver()
 
-        # Initialize agents
-        self.ingestion_agent = IngestionAgent()
-        self.hypothesis_agent = HypothesisGeneratorAgent()
-        self.interview_agent = InterviewArchitectAgent()
-        self.gap_analyst = GapAnalystAgent()
-        self.solution_agent = SolutionArchitectAgent()
-        self.reporting_agent = ReportingAgent()
+        # Load agent configurations
+        agent_config_registry = get_agent_config()
+
+        # Initialize agents with their configurations
+        self.ingestion_agent = IngestionAgent(
+            agent_config=agent_config_registry.get_agent_config("ingestion")
+        )
+        self.hypothesis_agent = HypothesisGeneratorAgent(
+            agent_config=agent_config_registry.get_agent_config("hypothesis")
+        )
+        self.interview_agent = InterviewArchitectAgent(
+            agent_config=agent_config_registry.get_agent_config("interview")
+        )
+        self.gap_analyst = GapAnalystAgent(
+            agent_config=agent_config_registry.get_agent_config("gap_analyst")
+        )
+        self.solution_agent = SolutionArchitectAgent(
+            agent_config=agent_config_registry.get_agent_config("solution")
+        )
+        self.reporting_agent = ReportingAgent(
+            agent_config=agent_config_registry.get_agent_config("reporting")
+        )
 
         # Build the workflow graph
         self.workflow = self._build_graph()

@@ -148,8 +148,8 @@ class InterviewArchitectAgent(BaseAgent):
         Returns:
             List of recommended roles to interview
         """
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert management consultant. Based on the
+        # Get configurable prompts or use defaults
+        default_system = """You are an expert management consultant. Based on the
             hypotheses about operational inefficiencies, determine which roles
             should be interviewed to validate these hypotheses.
 
@@ -158,8 +158,9 @@ class InterviewArchitectAgent(BaseAgent):
             2. Have visibility into the day-to-day operations
             3. Can provide insight into workarounds and pain points
             4. Have decision-making authority over process changes
-            """),
-            ("human", """Based on these hypotheses, recommend 3-5 roles to interview:
+            """
+
+        default_human = """Based on these hypotheses, recommend 3-5 roles to interview:
 
             HYPOTHESES:
             {hypotheses}
@@ -167,7 +168,14 @@ class InterviewArchitectAgent(BaseAgent):
             TARGET DEPARTMENTS: {departments}
 
             Return a JSON array of role titles (e.g., ["CFO", "Operations Manager", "Data Entry Clerk"]).
-            Return ONLY the JSON array."""),
+            Return ONLY the JSON array."""
+
+        system_prompt = self.get_prompt("system", default_system)
+        human_template = self.get_prompt("determine_roles", default_human)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
         ])
 
         hypotheses_text = "\n".join([
@@ -215,8 +223,8 @@ class InterviewArchitectAgent(BaseAgent):
         Returns:
             List of interview questions
         """
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert management consultant preparing for
+        # Get configurable prompts or use defaults
+        default_system = """You are an expert management consultant preparing for
             client interviews. Generate targeted questions that will:
 
             1. Validate or invalidate the hypotheses about inefficiencies
@@ -233,8 +241,9 @@ class InterviewArchitectAgent(BaseAgent):
 
             Make questions conversational and non-leading. Focus on understanding
             the actual workflow, not just confirming assumptions.
-            """),
-            ("human", """Generate interview questions for the following context:
+            """
+
+        default_human = """Generate interview questions for the following context:
 
             HYPOTHESES TO VALIDATE:
             {hypotheses}
@@ -254,7 +263,14 @@ class InterviewArchitectAgent(BaseAgent):
                 }}
             ]
 
-            Return ONLY the JSON array."""),
+            Return ONLY the JSON array."""
+
+        system_prompt = self.get_prompt("system", default_system)
+        human_template = self.get_prompt("generate_questions", default_human)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
         ])
 
         hypotheses_text = "\n".join([

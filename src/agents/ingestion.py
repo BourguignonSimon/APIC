@@ -240,20 +240,24 @@ class IngestionAgent(BaseAgent):
         if len(content) > max_content_length:
             truncated_content += "... [truncated]"
 
-        prompt = f"""Analyze the following document and provide a concise summary
+        # Get configurable prompt or use default
+        default_prompt = """Analyze the following document and provide a concise summary
         that captures the main topics, processes, and any potential areas
         of operational inefficiency or improvement.
 
         Document: {filename}
 
         Content:
-        {truncated_content}
+        {content}
 
         Provide a summary in 2-3 paragraphs focusing on:
         1. Main purpose and content of the document
         2. Key processes or procedures described
         3. Any notable patterns, pain points, or areas that might benefit from automation
         """
+
+        prompt_template = self.get_prompt("summary", default_prompt)
+        prompt = prompt_template.format(filename=filename, content=truncated_content)
 
         response = await self.llm.ainvoke(prompt)
         return response.content
