@@ -229,3 +229,67 @@ async def delete_document(project_id: str, document_id: str):
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Document {document_id} not found",
     )
+
+
+# ============================================================================
+# Enhanced Features - Bulk Operations
+# ============================================================================
+
+async def bulk_upload_documents(project_id: str, files: list) -> dict:
+    """
+    Bulk upload multiple documents with partial failure handling.
+
+    Args:
+        project_id: ID of the project
+        files: List of file dictionaries with filename, content, size
+
+    Returns:
+        Dictionary with upload results
+    """
+    from src.models.schemas import BulkUploadResult, Document
+
+    uploaded_docs = []
+    errors = []
+
+    for file_data in files:
+        try:
+            # Validate file
+            from src.utils.validators import DocumentValidator
+            validator = DocumentValidator()
+
+            validation_error = validator.validate_file(
+                filename=file_data["filename"],
+                file_size=file_data["size"],
+                file_type=""
+            )
+
+            if validation_error:
+                errors.append({
+                    "filename": file_data["filename"],
+                    "error": validation_error.message
+                })
+                continue
+
+            # Create document record
+            doc = Document(
+                project_id=project_id,
+                filename=file_data["filename"],
+                file_type=get_file_extension(file_data["filename"]),
+                file_size=file_data["size"]
+            )
+
+            uploaded_docs.append(doc)
+
+        except Exception as e:
+            errors.append({
+                "filename": file_data["filename"],
+                "error": str(e)
+            })
+
+    return {
+        "total": len(files),
+        "successful": len(uploaded_docs),
+        "failed": len(errors),
+        "documents": uploaded_docs,
+        "errors": errors
+    }

@@ -97,13 +97,20 @@ class IngestionAgent(BaseAgent):
                     doc.processed = True
                     doc.content_summary = summary
 
-            # Store chunks in vector database
+            # Store chunks in vector database with graceful degradation
             if all_chunks:
-                await self._store_in_vector_db(
-                    chunks=all_chunks,
-                    namespace=f"client_{project_id}",
-                )
-                self.log_info(f"Stored {len(all_chunks)} chunks in vector database")
+                try:
+                    await self._store_in_vector_db(
+                        chunks=all_chunks,
+                        namespace=f"client_{project_id}",
+                    )
+                    self.log_info(f"Stored {len(all_chunks)} chunks in vector database")
+                except Exception as vector_error:
+                    self.log_error(f"Vector storage failed, continuing without it: {vector_error}")
+                    state["messages"].append(
+                        f"Warning: Vector storage unavailable. "
+                        f"Document processing completed but semantic search may be limited."
+                    )
 
             # Update state
             state["documents"] = [
@@ -266,6 +273,44 @@ class IngestionAgent(BaseAgent):
 
         response = await self.llm.ainvoke(prompt)
         return response.content
+
+    async def _get_or_generate_summary(
+        self,
+        document_id: str,
+        content: str,
+        filename: str = "document"
+    ) -> str:
+        """
+        Get cached summary or generate a new one.
+
+        Args:
+            document_id: Unique document identifier
+            content: Document content
+            filename: Name of the file
+
+        Returns:
+            Document summary
+        """
+        from src.services.llm_cache import get_llm_cache
+
+        cache = get_llm_cache()
+
+        # Create cache key from document ID
+        cache_key = f"summary_{document_id}"
+
+        # Try to get from cache
+        cached_summary = await cache.get(cache_key)
+        if cached_summary:
+            self.log_info(f"Using cached summary for document {document_id}")
+            return cached_summary
+
+        # Generate new summary
+        summary = await self._generate_summary(content, filename)
+
+        # Cache for future use
+        await cache.set(cache_key, summary)
+
+        return summary
 
     async def _store_in_vector_db(
         self,

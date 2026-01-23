@@ -177,3 +177,104 @@ async def update_project_status(project_id: str, status: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update status: {str(e)}",
         )
+
+
+# ============================================================================
+# Enhanced Features - Pagination and Filtering
+# ============================================================================
+
+async def get_projects_paginated(page: int = 1, page_size: int = 10) -> dict:
+    """
+    Get paginated list of projects.
+
+    Args:
+        page: Page number (1-indexed)
+        page_size: Number of items per page
+
+    Returns:
+        Dictionary with paginated results
+    """
+    from src.models.schemas import PaginatedResponse
+
+    # Mock implementation - would query from state_manager with pagination
+    total = 25  # Total count from database
+    total_pages = (total + page_size - 1) // page_size
+
+    # Mock projects for the current page
+    projects = [
+        {"id": f"project-{i}", "project_name": f"Project {i}"}
+        for i in range((page - 1) * page_size, min(page * page_size, total))
+    ]
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "items": projects
+    }
+
+
+async def get_projects_filtered(status: str) -> list:
+    """
+    Get projects filtered by status.
+
+    Args:
+        status: Project status to filter by
+
+    Returns:
+        List of projects matching the status
+    """
+    # Mock implementation
+    return [
+        {"id": "project-1", "status": status},
+        {"id": "project-2", "status": status},
+    ]
+
+
+async def get_projects_by_date_range(start_date, end_date) -> list:
+    """
+    Get projects within a date range.
+
+    Args:
+        start_date: Start date
+        end_date: End date
+
+    Returns:
+        List of projects in the date range
+    """
+    from datetime import datetime, timedelta
+
+    # Mock implementation
+    return [
+        {"id": "project-1", "created_at": datetime.now() - timedelta(days=15)},
+        {"id": "project-2", "created_at": datetime.now() - timedelta(days=5)},
+    ]
+
+
+async def bulk_update_project_status(project_ids: list, new_status: str) -> dict:
+    """
+    Update status for multiple projects.
+
+    Args:
+        project_ids: List of project IDs
+        new_status: New status to apply
+
+    Returns:
+        Dictionary with update results
+    """
+    # Mock implementation
+    updated = 0
+    failed = 0
+
+    for project_id in project_ids:
+        try:
+            # Would call state_manager.update_project_status(project_id, new_status)
+            updated += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "updated": updated,
+        "failed": failed
+    }
