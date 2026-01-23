@@ -9,6 +9,34 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 
+
+def serialize_state_data(data: Any) -> Any:
+    """
+    Recursively serialize data for JSON storage.
+
+    Converts datetime objects to ISO format strings and handles
+    nested dictionaries and lists.
+
+    Args:
+        data: Data to serialize
+
+    Returns:
+        JSON-serializable data
+    """
+    if isinstance(data, datetime):
+        return data.isoformat()
+    elif isinstance(data, dict):
+        return {key: serialize_state_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [serialize_state_data(item) for item in data]
+    elif hasattr(data, 'model_dump'):
+        # Handle Pydantic models
+        return serialize_state_data(data.model_dump())
+    elif hasattr(data, 'dict'):
+        # Handle older Pydantic models (v1)
+        return serialize_state_data(data.dict())
+    return data
+
 from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -236,13 +264,16 @@ class StateManager:
             thread_id: Thread ID
             state: State data
         """
+        # Serialize state data to ensure datetime objects are JSON-compatible
+        serialized_state = serialize_state_data(state)
+
         with self.get_session() as session:
             existing = session.query(ProjectState).filter_by(
                 project_id=project_id
             ).first()
 
             if existing:
-                existing.state_data = state
+                existing.state_data = serialized_state
                 existing.current_node = state.get("current_node", "unknown")
                 existing.is_suspended = state.get("is_suspended", False)
                 existing.suspension_reason = state.get("suspension_reason")
@@ -251,7 +282,7 @@ class StateManager:
                 project_state = ProjectState(
                     project_id=project_id,
                     thread_id=thread_id,
-                    state_data=state,
+                    state_data=serialized_state,
                     current_node=state.get("current_node", "start"),
                     is_suspended=state.get("is_suspended", False),
                     suspension_reason=state.get("suspension_reason"),
