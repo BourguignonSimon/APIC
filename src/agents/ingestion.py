@@ -10,11 +10,10 @@ from datetime import datetime
 
 from langchain_core.documents import Document as LCDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, get_embeddings
 from src.models.schemas import Document, GraphState, ProjectStatus
 from config.settings import settings
 
@@ -38,10 +37,16 @@ class IngestionAgent(BaseAgent):
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
-        self.embeddings = OpenAIEmbeddings(
-            api_key=settings.OPENAI_API_KEY,
-            model="text-embedding-3-small",
-        )
+        # Embeddings are lazy-loaded when needed to allow for missing API keys
+        # during initialization (validation happens when actually used)
+        self._embeddings = None
+
+    @property
+    def embeddings(self):
+        """Lazy-load embeddings to defer API key validation until actually needed."""
+        if self._embeddings is None:
+            self._embeddings = get_embeddings()
+        return self._embeddings
 
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
