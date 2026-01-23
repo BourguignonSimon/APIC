@@ -371,6 +371,8 @@ class StateManager:
                 "file_type": doc.file_type,
                 "file_size": int(doc.file_size),
                 "file_path": doc.file_path,
+                "processed": doc.processed,
+                "chunk_count": int(doc.chunk_count),
                 "uploaded_at": doc.uploaded_at.isoformat(),
             }
 
@@ -392,6 +394,7 @@ class StateManager:
             return [
                 {
                     "id": d.id,
+                    "project_id": d.project_id,
                     "filename": d.filename,
                     "file_type": d.file_type,
                     "file_size": int(d.file_size),
