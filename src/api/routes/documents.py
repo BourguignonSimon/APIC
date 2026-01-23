@@ -5,8 +5,8 @@ API endpoints for uploading and managing documents.
 
 import os
 import shutil
-from typing import List
-from fastapi import APIRouter, HTTPException, UploadFile, File, status, Form
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, UploadFile, File, status, Form, Query
 from pydantic import BaseModel
 
 from src.services.state_manager import StateManager
@@ -30,6 +30,7 @@ class DocumentResponse(BaseModel):
     processed: bool = False
     chunk_count: int = 0
     uploaded_at: str
+    category: str = "general"
 
 
 class DocumentListResponse(BaseModel):
@@ -80,6 +81,7 @@ def get_project_upload_dir(project_id: str) -> str:
 async def upload_documents(
     project_id: str,
     files: List[UploadFile] = File(...),
+    category: str = Form(default="general", description="Document category"),
 ):
     """
     Upload documents for analysis.
@@ -138,6 +140,7 @@ async def upload_documents(
             file_type=get_file_extension(file.filename),
             file_size=file_size,
             file_path=file_path,
+            category=category,
         )
 
         uploaded_docs.append(DocumentResponse(**doc))
@@ -152,10 +155,16 @@ async def upload_documents(
     "/projects/{project_id}/documents",
     response_model=DocumentListResponse,
     summary="List project documents",
-    description="Get all documents uploaded for a project.",
+    description="Get all documents uploaded for a project, optionally filtered by category.",
 )
-async def list_documents(project_id: str):
-    """List all documents for a project."""
+async def list_documents(
+    project_id: str,
+    category: Optional[str] = Query(
+        None,
+        description="Filter documents by category (e.g., 'general', 'interview_results')",
+    ),
+):
+    """List all documents for a project, optionally filtered by category."""
     # Verify project exists
     project = state_manager.get_project(project_id)
     if not project:
@@ -164,7 +173,7 @@ async def list_documents(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    docs = state_manager.get_project_documents(project_id)
+    docs = state_manager.get_project_documents(project_id, category=category)
 
     return DocumentListResponse(
         documents=[DocumentResponse(**d) for d in docs],
