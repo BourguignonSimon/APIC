@@ -49,6 +49,7 @@ class WorkflowState(TypedDict):
     is_suspended: bool
     suspension_reason: Optional[str]
     transcript: Optional[str]
+    interview_documents: list  # Interview result documents (Step 4)
     transcript_received: bool
 
     # Node 4 outputs
@@ -239,6 +240,7 @@ class ConsultantGraph:
             is_suspended=False,
             suspension_reason=None,
             transcript=None,
+            interview_documents=[],
             transcript_received=False,
             gap_analyses=[],
             gap_analysis_complete=False,
@@ -300,14 +302,45 @@ class ConsultantGraph:
         Returns:
             Final state with report
         """
+        return await self.resume_with_interview_results(
+            thread_id=thread_id,
+            transcript=transcript,
+            interview_documents=None,
+        )
+
+    async def resume_with_interview_results(
+        self,
+        thread_id: str,
+        transcript: Optional[str] = None,
+        interview_documents: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resume workflow after receiving interview results.
+
+        Supports both text transcript and/or uploaded interview result documents.
+
+        Args:
+            thread_id: Thread ID to resume
+            transcript: Interview transcript text (optional)
+            interview_documents: List of uploaded interview result documents (optional)
+
+        Returns:
+            Final state with report
+        """
         config = {"configurable": {"thread_id": thread_id}}
 
         # Get current state
         state_snapshot = self.workflow.get_state(config)
         current_state = dict(state_snapshot.values)
 
-        # Update state with transcript
-        current_state["transcript"] = transcript
+        # Update state with transcript (if provided)
+        if transcript:
+            current_state["transcript"] = transcript
+
+        # Update state with interview documents (if provided)
+        if interview_documents:
+            current_state["interview_documents"] = interview_documents
+
         current_state["transcript_received"] = True
         current_state["is_suspended"] = False
 

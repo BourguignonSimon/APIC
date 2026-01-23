@@ -98,6 +98,7 @@ class Document(BaseModel):
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     processed: bool = False
     content_summary: Optional[str] = None
+    category: str = "source"  # 'source' for initial docs (Step 1), 'interview_results' for Step 4
 
 
 # ============================================================================
@@ -292,6 +293,7 @@ class GraphState(BaseModel):
     is_suspended: bool = False
     suspension_reason: Optional[str] = None
     transcript: Optional[str] = None
+    interview_documents: List[Document] = Field(default_factory=list)  # Interview result docs (Step 4)
     transcript_received: bool = False
 
     # Node 4 outputs
