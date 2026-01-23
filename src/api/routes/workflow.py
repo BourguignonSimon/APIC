@@ -299,26 +299,31 @@ async def get_workflow_status(project_id: str):
 )
 async def get_interview_script(project_id: str):
     """Get the interview script."""
-    state = state_manager.load_state(project_id)
-
-    if not state:
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow state found. Start analysis first.",
+            detail=f"Project {project_id} not found",
+        )
+
+    state = state_manager.load_state(project_id)
+
+    # Return empty response if workflow not started yet
+    if not state:
+        return InterviewScriptResponse(
+            project_id=project_id,
+            interview_script=None,
+            target_roles=[],
+            estimated_duration_minutes=0,
         )
 
     script = state.get("interview_script")
-    if not script:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview script not yet generated.",
-        )
-
     return InterviewScriptResponse(
         project_id=project_id,
         interview_script=script,
-        target_roles=script.get("target_roles", []),
-        estimated_duration_minutes=script.get("estimated_duration_minutes", 60),
+        target_roles=script.get("target_roles", []) if script else [],
+        estimated_duration_minutes=script.get("estimated_duration_minutes", 60) if script else 0,
     )
 
 
@@ -330,18 +335,32 @@ async def get_interview_script(project_id: str):
 )
 async def get_report(project_id: str):
     """Get the final report."""
-    state = state_manager.load_state(project_id)
-
-    if not state:
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow state found.",
+            detail=f"Project {project_id} not found",
         )
 
+    state = state_manager.load_state(project_id)
+
+    # Return empty response if workflow not started yet
+    if not state:
+        return ReportResponse(
+            project_id=project_id,
+            report_pdf_path=None,
+            report=None,
+            status="not_started",
+        )
+
+    # Return status based on workflow progress
     if not state.get("report_complete"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Report not yet generated. Complete the workflow first.",
+        return ReportResponse(
+            project_id=project_id,
+            report_pdf_path=None,
+            report=None,
+            status="in_progress",
         )
 
     return ReportResponse(
@@ -360,12 +379,22 @@ async def get_report(project_id: str):
 )
 async def get_hypotheses(project_id: str):
     """Get the hypotheses."""
-    state = state_manager.load_state(project_id)
-
-    if not state:
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow state found.",
+            detail=f"Project {project_id} not found",
+        )
+
+    state = state_manager.load_state(project_id)
+
+    # Return empty response if workflow not started yet
+    if not state:
+        return HypothesesResponse(
+            project_id=project_id,
+            hypotheses=[],
+            count=0,
         )
 
     return HypothesesResponse(
@@ -383,12 +412,22 @@ async def get_hypotheses(project_id: str):
 )
 async def get_gaps(project_id: str):
     """Get the gap analysis results."""
-    state = state_manager.load_state(project_id)
-
-    if not state:
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow state found.",
+            detail=f"Project {project_id} not found",
+        )
+
+    state = state_manager.load_state(project_id)
+
+    # Return empty response if workflow not started yet
+    if not state:
+        return GapsResponse(
+            project_id=project_id,
+            gap_analyses=[],
+            count=0,
         )
 
     return GapsResponse(
@@ -406,12 +445,23 @@ async def get_gaps(project_id: str):
 )
 async def get_solutions(project_id: str):
     """Get the solution recommendations."""
-    state = state_manager.load_state(project_id)
-
-    if not state:
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow state found.",
+            detail=f"Project {project_id} not found",
+        )
+
+    state = state_manager.load_state(project_id)
+
+    # Return empty response if workflow not started yet
+    if not state:
+        return SolutionsResponse(
+            project_id=project_id,
+            solutions=[],
+            recommendations=[],
+            count=0,
         )
 
     return SolutionsResponse(
