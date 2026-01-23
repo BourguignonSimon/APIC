@@ -9,11 +9,11 @@ APIC (Agentic Process Improvement Consultant) is an AI-powered system that helps
 1. [Getting Started](#getting-started)
 2. [Understanding the Workflow](#understanding-the-workflow)
 3. [Creating a Project](#creating-a-project)
-4. [Uploading Documents](#uploading-documents)
-5. [Running the Analysis](#running-the-analysis)
-6. [Conducting Interviews](#conducting-interviews)
-7. [Reviewing Results](#reviewing-results)
-8. [Understanding the Report](#understanding-the-report)
+4. [Uploading Documents (Page 1: Document)](#uploading-documents-page-1-document)
+5. [Running the Analysis (Page 2: Interview)](#running-the-analysis-page-2-interview)
+6. [Conducting Interviews (After Page 3: Interview Script)](#conducting-interviews-after-page-3-interview-script)
+7. [Submitting Results (Page 4: Results)](#submitting-results-page-4-results)
+8. [Viewing the Report (Page 5: Report)](#viewing-the-report-page-5-report)
 9. [Best Practices](#best-practices)
 10. [FAQ](#faq)
 
@@ -40,27 +40,25 @@ APIC (Agentic Process Improvement Consultant) is an AI-powered system that helps
 
 ## Understanding the Workflow
 
-APIC uses a 6-phase analysis process:
+APIC uses a 5-page workflow:
 
 ```
-Phase 1: Document Ingestion
+Page 1: DOCUMENT - Upload all available company data (documents, URLs, etc.)
     ↓
-Phase 2: Hypothesis Generation
+Page 2: INTERVIEW - Agents analyze sources and create interview script
     ↓
-Phase 3: Interview Script Creation
+Page 3: INTERVIEW SCRIPT - View the script for customer interview
     ↓
-    ⏸️ HUMAN INPUT REQUIRED ⏸️
+    ⏸️ CONDUCT INTERVIEW WITH CUSTOMER ⏸️
     ↓
-Phase 4: Gap Analysis
+Page 4: RESULTS - Upload interview results → Agents create report
     ↓
-Phase 5: Solution Architecture
-    ↓
-Phase 6: Report Generation
+Page 5: REPORT - Display final report for customer
 ```
 
 ### Key Concept: Human-in-the-Loop
 
-APIC pauses after Phase 3 to allow you to conduct real interviews with your team. This ensures recommendations are grounded in reality, not just theory.
+APIC pauses after generating the Interview Script (Page 3) to allow you to conduct real interviews with the customer. After the interview, you upload the results on the Results page (Page 4), and agents will create the final report.
 
 ---
 
@@ -85,9 +83,11 @@ Click "Create Project" to initialize your analysis workspace.
 
 ---
 
-## Uploading Documents
+## Uploading Documents (Page 1: Document)
 
-### Supported Document Types
+The Document page is the first page where you upload all available input from the company.
+
+### Supported Data Types
 
 | Type | Extension | Best For |
 |------|-----------|----------|
@@ -96,63 +96,72 @@ Click "Create Project" to initialize your analysis workspace.
 | PowerPoint | `.pptx` | Training materials, presentations |
 | Text | `.txt` | Quick notes, logs |
 | Excel | `.xlsx` | Process matrices, data tables |
+| URLs | - | Company websites, public pages |
 
-### What Documents to Upload
+### What to Upload
 
-**Recommended:**
+Upload all available input from the company - both publicly available and provided directly:
+- Documents provided by the company
+- URLs for company websites
 - Standard Operating Procedures (SOPs)
 - Process flowcharts
 - Training documentation
 - Compliance guidelines
 - Role descriptions
-- Current system documentation
+- Any publicly available information
 
 **Maximum File Size:** 50MB per file
 
 ### Upload Process
 
 1. Select your project
-2. Click "Upload Documents"
+2. Navigate to the **Document** page
 3. Drag and drop files or click to browse
-4. Wait for processing confirmation
+4. Add URLs for company websites if available
+5. Wait for processing confirmation
 
 ---
 
-## Running the Analysis
+## Running the Analysis (Page 2: Interview)
+
+The Interview page is where agents analyze the uploaded source information and create the interview script.
 
 ### Starting the Analysis
 
-1. Ensure all documents are uploaded
-2. Click "Start Analysis"
-3. APIC will process your documents through Phases 1-3
+1. Ensure all documents and sources are uploaded on the Document page
+2. Navigate to the **Interview** page
+3. Click "Start Analysis"
+4. Agents will analyze sources and generate the interview script
 
 ### What Happens During Analysis
 
-**Phase 1 - Document Ingestion:**
+**Document Ingestion:**
 - Documents are parsed and chunked
 - Text is converted to embeddings
 - Content is stored in the vector database
 
-**Phase 2 - Hypothesis Generation:**
+**Hypothesis Generation:**
 - AI analyzes document content
 - Identifies suspected inefficiencies
 - Generates confidence-scored hypotheses
 
-**Phase 3 - Interview Script Creation:**
+**Interview Script Creation:**
 - Creates role-specific interview questions
 - Focuses on "Dull, Dirty, Dangerous" tasks
 - Generates follow-up questions
 
 ### Analysis Completion
 
-When analysis reaches the human breakpoint, you'll see:
+When analysis completes, proceed to the Interview Script page to see:
 - Generated interview script
 - List of hypotheses to validate
 - Instructions for next steps
 
 ---
 
-## Conducting Interviews
+## Conducting Interviews (After Page 3: Interview Script)
+
+After viewing the Interview Script page, conduct real interviews with the customer.
 
 ### Why Interviews Matter
 
@@ -166,8 +175,8 @@ APIC generates hypotheses based on documentation, but real-world processes often
 ### Interview Guidelines
 
 **Preparation:**
-1. Download the interview script
-2. Identify interviewees based on suggested roles
+1. View the interview script on the Interview Script page
+2. Download the script for use with the customer
 3. Schedule 30-60 minute sessions
 4. Prepare recording equipment (with consent)
 
@@ -184,9 +193,9 @@ APIC generates hypotheses based on documentation, but real-world processes often
 - "What would you automate if you could?"
 - "Where do you see bottlenecks?"
 
-### Creating the Transcript
+### Creating the Interview Results
 
-After interviews, create a transcript document including:
+After interviews, create a document to upload on the Results page:
 
 ```
 Interview Transcript
@@ -207,20 +216,29 @@ Key Observations:
 - [Notable insight 2]
 ```
 
-### Submitting the Transcript
+### Uploading Results
 
-1. Return to your project in APIC
-2. Click "Resume Analysis"
-3. Paste or upload your interview transcript
-4. Click "Submit"
+1. Navigate to the **Results** page (Page 4)
+2. Upload your interview transcripts and any additional documents
+3. Agents will process the data and create the report
 
 ---
 
-## Reviewing Results
+## Submitting Results (Page 4: Results)
 
-### Phase 4 - Gap Analysis Results
+The Results page allows you to add extra documents (interview results) that agents use to create the report.
 
-After submitting transcripts, APIC identifies gaps between:
+### Uploading Interview Results
+
+After conducting the interview with the customer, upload your results:
+1. Navigate to the **Results** page
+2. Upload interview transcripts and additional documents
+3. Agents will analyze the data and create the report
+
+### What Happens After Upload
+
+**Gap Analysis:**
+- APIC identifies gaps between documented processes and interview findings
 - **SOP (Documented):** What the documentation says should happen
 - **Reality (Observed):** What actually happens based on interviews
 
@@ -231,9 +249,9 @@ Each gap is classified as:
 | **Partially Automatable** | Some steps can be automated, others need human judgment |
 | **Human Only** | Requires human decision-making, creativity, or empathy |
 
-### Phase 5 - Solution Recommendations
+**Solution Recommendations:**
 
-For each automatable gap, APIC provides:
+For each automatable gap, agents provide:
 
 - **Recommended Technology:** Specific tools/platforms
 - **Implementation Approach:** Step-by-step implementation plan
@@ -241,17 +259,15 @@ For each automatable gap, APIC provides:
 - **Complexity Rating:** Low/Medium/High implementation difficulty
 - **Priority Score:** Based on impact and feasibility
 
-### Viewing Results
+**Report Generation:**
 
-Navigate to your project's "Results" tab to see:
-- Gap analysis summary
-- Solution recommendations
-- Priority matrix
-- ROI calculations
+Agents compile all analysis into a professional report for the customer.
 
 ---
 
-## Understanding the Report
+## Viewing the Report (Page 5: Report)
+
+The Report page displays the final result to be sent to the customer.
 
 ### Report Sections
 
@@ -287,7 +303,7 @@ Navigate to your project's "Results" tab to see:
 
 ### Downloading the Report
 
-Click "Download Report" to get a PDF containing all findings and recommendations.
+Click "Download Report" to get a PDF containing all findings and recommendations to send to the customer.
 
 ---
 

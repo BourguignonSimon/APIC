@@ -2,61 +2,62 @@
 
 ## Introduction
 
-This document describes the 5-step workflow for conducting process improvement consultations using APIC (Agentic Process Improvement Consultant). The system guides consultants through a structured approach from initial data collection to final report delivery.
+This document describes the 5-page workflow for conducting process improvement consultations using APIC (Agentic Process Improvement Consultant). The system guides consultants through a structured approach from initial data collection to final report delivery.
 
 ---
 
 ## Process Flow
 
 ```
-Step 1: DOCUMENT
-     |
+Page 1: DOCUMENT (Data Upload)
+     |  Upload all available company input (documents, URLs, etc.)
      v
-Step 2: INTERVIEW (Agent Analysis)
-     |
+Page 2: INTERVIEW (Agent Analysis)
+     |  Agents analyze source information and create interview script
      v
-Step 3: INTERVIEW SCRIPT
-     |
+Page 3: INTERVIEW SCRIPT
+     |  View and use the generated script for customer interview
      v
-     [Human Breakpoint - Conduct Real Interview]
-     |
+     [Human Breakpoint - Conduct Real Interview with Customer]
      v
-Step 4: RESULTS
-     |
+Page 4: RESULTS
+     |  Add interview results documents → Agents create the report
      v
-Step 5: REPORT
+Page 5: REPORT
+        Display the final report to be sent to customer
 ```
 
 ---
 
-## Step 1: Document
+## Page 1: Document (Data Upload)
 
-**Purpose:** Collect and upload all available company information.
+**Purpose:** Upload all available input from the company - both publicly available information and materials provided directly by the client.
 
-**Tab:** Documents
+**Page:** Document
 
 ### What to Upload
 
-Upload all source information available from the client:
+This is the first page where you provide all source data available:
 
 | Source Type | Examples | Supported Formats |
 |-------------|----------|-------------------|
 | **Documents** | SOPs, Process manuals, Training materials | PDF, DOCX, TXT, PPTX, XLSX |
-| **Website Content** | Company website pages, Knowledge base articles | URL references |
-| **Internal Systems** | System documentation, Screenshots | PDF, Images |
+| **Website URLs** | Company website, Knowledge base, Public pages | URL references |
+| **Internal Materials** | System documentation, Screenshots | PDF, Images |
 | **Organizational Info** | Org charts, Role descriptions | PDF, DOCX |
+| **Any Available Data** | Client-provided materials, Public information | All supported formats |
 
 ### Actions
 
 1. Create a new project with client details
-2. Navigate to the **Documents** tab
-3. Upload all available source materials:
+2. Navigate to the **Document** page
+3. Upload all available sources of data:
+   - Documents provided by the company
+   - URLs for company websites
    - Standard Operating Procedures (SOPs)
    - Process flowcharts and diagrams
-   - Training documentation
-   - Compliance guidelines
-   - System documentation
-   - Any other relevant materials provided by the client
+   - Any publicly available information
+   - Any other materials at your disposal
 
 ### Output
 
@@ -66,18 +67,18 @@ Upload all source information available from the client:
 
 ---
 
-## Step 2: Interview (Agent Analysis)
+## Page 2: Interview (Agent Analysis)
 
-**Purpose:** AI agents analyze the uploaded source information to generate hypotheses and prepare for the customer interview.
+**Purpose:** Agents analyze the uploaded source information and create a script to be used for the interview with the customer.
 
-**Tab:** Analysis
+**Page:** Interview
 
 ### What Happens
 
-The system runs two automated analysis phases:
+The Interview page triggers agents to perform analysis and generate the interview script:
 
 **Phase 1 - Document Ingestion:**
-- All uploaded documents are processed
+- All uploaded documents and sources are processed
 - Content is analyzed for process patterns
 - Information is prepared for hypothesis generation
 
@@ -89,37 +90,37 @@ The system runs two automated analysis phases:
   - "Dirty" tasks (data manipulation, cleanup)
   - "Dangerous" tasks (error-prone, high-risk)
 
+**Phase 3 - Interview Script Creation:**
+- AI generates role-specific interview questions
+- Questions are designed to validate hypotheses
+- Follow-up questions are prepared for deeper exploration
+
 ### Actions
 
-1. Navigate to the **Analysis** tab
+1. Navigate to the **Interview** page
 2. Click **Start Analysis**
-3. Wait for processing to complete
-4. Review generated hypotheses
+3. Wait for agents to complete the analysis
+4. Review generated hypotheses and script creation progress
 
 ### Output
 
 - List of hypotheses with confidence scores
 - Identified areas of potential inefficiency
-- Foundation for interview script generation
+- Interview script generated for customer interview
 
 ---
 
-## Step 3: Interview Script
+## Page 3: Interview Script
 
-**Purpose:** Provide the interview script to be used with the customer.
+**Purpose:** Provide the script to be used for the interview with the customer.
 
-**Tab:** Interview
+**Page:** Interview Script
 
-### What Happens
+### What It Contains
 
-**Phase 3 - Interview Script Generation:**
-- AI generates role-specific interview questions
-- Questions target validation of hypotheses
-- Follow-up questions are prepared for deeper exploration
+The Interview Script page displays the complete script generated by agents:
 
 ### Script Structure
-
-The generated script includes:
 
 | Section | Purpose |
 |---------|---------|
@@ -132,11 +133,11 @@ The generated script includes:
 
 ### Actions
 
-1. Navigate to the **Interview** tab
+1. Navigate to the **Interview Script** page
 2. Review the generated interview script
 3. Download or copy the script for use
 4. Identify appropriate interviewees based on suggested roles
-5. Schedule interviews with the customer
+5. Schedule and conduct interviews with the customer
 
 ### Output
 
@@ -146,15 +147,15 @@ The generated script includes:
 
 ---
 
-## Human Breakpoint: Conduct the Interview
+## Human Breakpoint: Conduct the Interview with Customer
 
-**This is where the consultant conducts real interviews with the customer.**
+**After viewing the Interview Script (Page 3), the consultant conducts real interviews with the customer before proceeding to Results (Page 4).**
 
 ### Interview Guidelines
 
 **Preparation:**
-- Download the generated script
-- Schedule 30-60 minute sessions
+- Download the generated script from the Interview Script page
+- Schedule 30-60 minute sessions with the customer
 - Prepare note-taking or recording tools
 
 **During the Interview:**
@@ -170,9 +171,9 @@ The generated script includes:
 - Time spent on tasks
 - Bottlenecks and delays
 
-### Creating the Transcript
+### Creating the Interview Results
 
-Document interview results in a structured format:
+Document interview results in a structured format to upload on the Results page:
 
 ```
 Interview Transcript
@@ -194,22 +195,24 @@ Key Observations:
 
 ---
 
-## Step 4: Results
+## Page 4: Results
 
-**Purpose:** Add interview results and trigger agent analysis to create the report.
+**Purpose:** Add extra documents (interview results) that agents use to create the report to be sent to the customer.
 
-**Tab:** Results
+**Page:** Results
 
 ### What to Provide
 
-Upload the interview transcript containing:
-- Responses to all script questions
-- Key observations and insights
-- Specific examples mentioned
-- Time estimates and pain points
+Upload the interview results and any additional documents:
+- Interview transcripts with responses to script questions
+- Key observations and insights from interviews
+- Specific examples mentioned by interviewees
+- Time estimates and pain points discovered
 - Any additional documents obtained during interviews
 
 ### What Happens
+
+After uploading interview results, agents analyze the data and create the report:
 
 **Phase 4 - Gap Analysis:**
 - AI compares documented SOPs with interview findings
@@ -222,37 +225,36 @@ Upload the interview transcript containing:
 - Calculates ROI estimates
 - Creates prioritized implementation roadmap
 
+**Phase 6 - Report Generation:**
+- AI compiles all analysis into a professional report
+- Creates executive summary and recommendations
+
 ### Actions
 
-1. Navigate to the **Results** tab
-2. Click **Resume Analysis** or **Submit Transcript**
-3. Upload or paste the interview transcript
-4. Add any additional documents from the interview
-5. Wait for gap analysis and solution generation to complete
-6. Review the results
+1. Navigate to the **Results** page
+2. Upload interview results documents (transcripts, notes, etc.)
+3. Add any additional documents from the interview
+4. Agents will process the data and create the report
+5. Wait for report generation to complete
 
 ### Output
 
 - **Gap Analysis:** Documented vs. actual process differences
 - **Solution Recommendations:** Technology and approach suggestions
 - **ROI Estimates:** Projected time and cost savings
-- **Priority Matrix:** Implementation prioritization
+- Report created by agents for customer delivery
 
 ---
 
-## Step 5: Report
+## Page 5: Report
 
-**Purpose:** Display and deliver the final report to the customer.
+**Purpose:** Display the final report result to be sent to the customer.
 
-**Tab:** Report
+**Page:** Report
 
-### What Happens
+### What It Shows
 
-**Phase 6 - Report Generation:**
-- AI compiles all analysis into a professional report
-- Creates executive summary
-- Organizes findings and recommendations
-- Generates PDF deliverable
+The Report page displays the complete report generated by agents:
 
 ### Report Contents
 
@@ -267,10 +269,10 @@ Upload the interview transcript containing:
 
 ### Actions
 
-1. Navigate to the **Report** tab
+1. Navigate to the **Report** page
 2. Review the generated report
 3. Download the PDF report
-4. Deliver to the customer
+4. Send to the customer
 
 ### Output
 
@@ -282,14 +284,14 @@ Upload the interview transcript containing:
 
 ## Quick Reference
 
-| Step | Tab | Input | Output |
-|------|-----|-------|--------|
-| 1. Document | Documents | Company documents, URLs, files | Vectorized knowledge base |
-| 2. Interview | Analysis | Click "Start Analysis" | Hypotheses with confidence scores |
-| 3. Interview Script | Interview | (Auto-generated) | Role-specific interview script |
-| - | - | **Conduct Real Interview** | Interview transcript |
-| 4. Results | Results | Interview transcript, additional docs | Gap analysis, solutions, ROI |
-| 5. Report | Report | (Auto-generated) | PDF report for customer |
+| Page | Purpose | Input | Output |
+|------|---------|-------|--------|
+| 1. Document | Upload all available data | Company documents, URLs, public info | Vectorized knowledge base |
+| 2. Interview | Agent analysis & script creation | Click "Start Analysis" | Hypotheses, interview script |
+| 3. Interview Script | View script for customer interview | (Generated by agents) | Role-specific interview script |
+| - | **Conduct Real Interview** | Use script with customer | Interview results |
+| 4. Results | Add interview results | Interview transcripts, additional docs | Gap analysis, report created |
+| 5. Report | Display final result | (Generated by agents) | PDF report for customer |
 
 ---
 
@@ -300,14 +302,14 @@ Upload the interview transcript containing:
 The project progresses through these states:
 
 1. `created` - Project initialized
-2. `ingesting` - Processing documents (Step 1)
-3. `analyzing` - Generating hypotheses (Step 2)
-4. `interview_ready` - Script generated (Step 3)
-5. `awaiting_transcript` - Human breakpoint active
-6. `processing_transcript` - Analyzing interview results (Step 4)
-7. `solutioning` - Generating solutions (Step 4)
-8. `reporting` - Creating report (Step 5)
-9. `completed` - Report ready for delivery
+2. `ingesting` - Processing documents (Page 1: Document)
+3. `analyzing` - Generating hypotheses (Page 2: Interview - agent analysis)
+4. `interview_ready` - Script generated (Page 3: Interview Script)
+5. `awaiting_transcript` - Human breakpoint active (conduct interview with customer)
+6. `processing_transcript` - Processing interview results (Page 4: Results)
+7. `solutioning` - Generating solutions (Page 4: Results)
+8. `reporting` - Creating report (Page 4: Results - agents create report)
+9. `completed` - Report ready for delivery (Page 5: Report)
 
 ### Related Documentation
 
