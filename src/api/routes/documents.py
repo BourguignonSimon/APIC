@@ -5,7 +5,7 @@ API endpoints for uploading and managing documents.
 
 import os
 import shutil
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, status, Form
 from pydantic import BaseModel
 
@@ -30,6 +30,7 @@ class DocumentResponse(BaseModel):
     processed: bool = False
     chunk_count: int = 0
     uploaded_at: str
+    category: str = "source"  # 'source' for initial docs, 'interview_results' for Step 4
 
 
 class DocumentListResponse(BaseModel):
@@ -74,18 +75,60 @@ def get_project_upload_dir(project_id: str) -> str:
     "/projects/{project_id}/documents",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload documents",
-    description="Upload one or more documents for a project.",
+    summary="Upload source documents",
+    description="Upload one or more source documents for a project (Step 1).",
 )
 async def upload_documents(
     project_id: str,
     files: List[UploadFile] = File(...),
 ):
     """
-    Upload documents for analysis.
+    Upload source documents for analysis (Step 1).
 
     Supported formats: PDF, DOCX, DOC, TXT, PPTX, XLSX
     Maximum file size: 50MB per file
+    """
+    return await _upload_documents(project_id, files, category="source")
+
+
+@router.post(
+    "/projects/{project_id}/interview-results",
+    response_model=UploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload interview result documents",
+    description="Upload interview result documents for report generation (Step 4).",
+)
+async def upload_interview_results(
+    project_id: str,
+    files: List[UploadFile] = File(...),
+):
+    """
+    Upload interview result documents (Step 4).
+
+    These documents contain interview notes, transcripts, or recordings
+    that will be analyzed to generate the final report.
+
+    Supported formats: PDF, DOCX, DOC, TXT, PPTX, XLSX
+    Maximum file size: 50MB per file
+    """
+    return await _upload_documents(project_id, files, category="interview_results")
+
+
+async def _upload_documents(
+    project_id: str,
+    files: List[UploadFile],
+    category: str = "source",
+) -> UploadResponse:
+    """
+    Internal helper to upload documents with a specified category.
+
+    Args:
+        project_id: Project ID
+        files: List of uploaded files
+        category: Document category ('source' or 'interview_results')
+
+    Returns:
+        UploadResponse with uploaded document details
     """
     # Verify project exists
     project = state_manager.get_project(project_id)
@@ -138,6 +181,7 @@ async def upload_documents(
             file_type=get_file_extension(file.filename),
             file_size=file_size,
             file_path=file_path,
+            category=category,
         )
 
         uploaded_docs.append(DocumentResponse(**doc))
@@ -152,10 +196,16 @@ async def upload_documents(
     "/projects/{project_id}/documents",
     response_model=DocumentListResponse,
     summary="List project documents",
-    description="Get all documents uploaded for a project.",
+    description="Get all documents uploaded for a project, optionally filtered by category.",
 )
-async def list_documents(project_id: str):
-    """List all documents for a project."""
+async def list_documents(project_id: str, category: Optional[str] = None):
+    """
+    List all documents for a project.
+
+    Args:
+        project_id: Project ID
+        category: Optional filter by category ('source' or 'interview_results')
+    """
     # Verify project exists
     project = state_manager.get_project(project_id)
     if not project:
@@ -164,7 +214,7 @@ async def list_documents(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    docs = state_manager.get_project_documents(project_id)
+    docs = state_manager.get_project_documents(project_id, category=category)
 
     return DocumentListResponse(
         documents=[DocumentResponse(**d) for d in docs],

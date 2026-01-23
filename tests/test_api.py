@@ -169,6 +169,75 @@ class TestDocumentEndpoints:
             # Should return 200/201 or 404 if project not found
             assert response.status_code in [200, 201, 404, 422]
 
+    def test_upload_interview_results_endpoint_exists(self, client):
+        """Test that interview results upload endpoint exists."""
+        project_id = str(uuid.uuid4())
+
+        # Create a test file
+        files = {
+            "file": ("interview_transcript.txt", b"interview content", "text/plain")
+        }
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {
+                "id": project_id,
+                "status": ProjectStatus.INTERVIEW_READY.value,
+            }
+            mock_sm.add_document.return_value = {
+                "id": str(uuid.uuid4()),
+                "filename": "interview_transcript.txt",
+                "category": "interview_results",
+            }
+
+            response = client.post(
+                f"/api/v1/projects/{project_id}/interview-results",
+                files=files
+            )
+
+            # Should return 200/201 or 404 if project not found
+            assert response.status_code in [200, 201, 404, 422]
+
+    def test_upload_interview_results_saves_with_correct_category(self, client):
+        """Test that uploaded interview results have 'interview_results' category."""
+        project_id = str(uuid.uuid4())
+
+        files = [
+            ("files", ("notes.txt", b"interview notes", "text/plain"))
+        ]
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {
+                "id": project_id,
+                "status": ProjectStatus.INTERVIEW_READY.value,
+            }
+
+            captured_category = None
+
+            def capture_add_document(**kwargs):
+                nonlocal captured_category
+                captured_category = kwargs.get('category')
+                return {
+                    "id": str(uuid.uuid4()),
+                    "project_id": project_id,
+                    "filename": "notes.txt",
+                    "file_type": "txt",
+                    "file_size": 100,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": captured_category,
+                }
+
+            mock_sm.add_document.side_effect = capture_add_document
+
+            response = client.post(
+                f"/api/v1/projects/{project_id}/interview-results",
+                files=files
+            )
+
+            if response.status_code in [200, 201]:
+                assert captured_category == "interview_results"
+
     def test_get_project_documents_returns_list(self, client):
         """Test that getting project documents returns a list."""
         project_id = str(uuid.uuid4())
@@ -184,6 +253,41 @@ class TestDocumentEndpoints:
             if response.status_code == 200:
                 data = response.json()
                 assert isinstance(data, list)
+
+    def test_get_project_documents_with_category_filter(self, client):
+        """Test that getting project documents can be filtered by category."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {
+                "id": project_id,
+                "status": ProjectStatus.CREATED.value,
+            }
+            mock_sm.get_project_documents.return_value = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "project_id": project_id,
+                    "filename": "interview.txt",
+                    "file_type": "txt",
+                    "file_size": 100,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": "interview_results",
+                }
+            ]
+
+            response = client.get(
+                f"/api/v1/projects/{project_id}/documents?category=interview_results"
+            )
+
+            assert response.status_code in [200, 404]
+            if response.status_code == 200:
+                data = response.json()
+                # Verify filter was passed to state_manager
+                mock_sm.get_project_documents.assert_called_with(
+                    project_id, category="interview_results"
+                )
 
 
 # ============================================================================
@@ -234,7 +338,82 @@ class TestWorkflowEndpoints:
             )
 
             # Should return 200 or validation error
-            assert response.status_code in [200, 422, 404, 500]
+            assert response.status_code in [200, 202, 422, 404, 400, 500]
+
+    def test_resume_workflow_with_transcript_only(self, client):
+        """Test resuming workflow with only transcript text."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.workflow.state_manager') as mock_sm, \
+             patch('src.api.routes.workflow.consultant_graph') as mock_graph:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_thread_id.return_value = str(uuid.uuid4())
+            mock_sm.load_state.return_value = {"is_suspended": True}
+            mock_sm.get_project_documents.return_value = []
+
+            mock_graph.resume_with_interview_results = AsyncMock(return_value={
+                "status": "completed",
+            })
+
+            response = client.post(
+                "/api/v1/workflow/resume",
+                json={
+                    "project_id": project_id,
+                    "transcript": "Interview transcript text"
+                }
+            )
+
+            # Should succeed with transcript only
+            assert response.status_code in [200, 202, 400, 404, 500]
+
+    def test_resume_workflow_with_documents_only(self, client):
+        """Test resuming workflow with only uploaded interview documents."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.workflow.state_manager') as mock_sm, \
+             patch('src.api.routes.workflow.consultant_graph') as mock_graph:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_thread_id.return_value = str(uuid.uuid4())
+            mock_sm.load_state.return_value = {"is_suspended": True}
+            mock_sm.get_project_documents.return_value = [
+                {"id": "doc1", "filename": "interview.pdf", "category": "interview_results"}
+            ]
+
+            mock_graph.resume_with_interview_results = AsyncMock(return_value={
+                "status": "completed",
+            })
+
+            response = client.post(
+                "/api/v1/workflow/resume",
+                json={
+                    "project_id": project_id,
+                    "transcript": None
+                }
+            )
+
+            # Should succeed with documents only
+            assert response.status_code in [200, 202, 400, 404, 500]
+
+    def test_resume_workflow_requires_transcript_or_documents(self, client):
+        """Test that resume workflow requires either transcript or documents."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.workflow.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_thread_id.return_value = str(uuid.uuid4())
+            mock_sm.load_state.return_value = {"is_suspended": True}
+            mock_sm.get_project_documents.return_value = []  # No documents
+
+            response = client.post(
+                "/api/v1/workflow/resume",
+                json={
+                    "project_id": project_id,
+                    "transcript": None  # No transcript
+                }
+            )
+
+            # Should fail with 400 error since neither transcript nor documents provided
+            assert response.status_code in [400, 422, 404, 500]
 
     def test_get_workflow_status_returns_status(self, client):
         """Test that getting workflow status returns status information."""

@@ -155,6 +155,66 @@ class TestGapAnalysisModels:
         assert len(result.tech_stack_recommendation) == 2
 
 
+class TestDocumentModels:
+    """Test document-related models."""
+
+    def test_document_creation(self):
+        """Test Document model creation."""
+        doc = Document(
+            project_id="test-123",
+            filename="interview_notes.pdf",
+            file_type="pdf",
+            file_size=1024,
+        )
+
+        assert doc.project_id == "test-123"
+        assert doc.filename == "interview_notes.pdf"
+        assert doc.file_size == 1024
+
+    def test_document_default_category(self):
+        """Test Document default category is 'source'."""
+        doc = Document(
+            project_id="test-123",
+            filename="sop.pdf",
+            file_type="pdf",
+            file_size=1024,
+        )
+
+        assert doc.category == "source"
+
+    def test_document_interview_results_category(self):
+        """Test Document can have 'interview_results' category."""
+        doc = Document(
+            project_id="test-123",
+            filename="interview_transcript.pdf",
+            file_type="pdf",
+            file_size=2048,
+            category="interview_results",
+        )
+
+        assert doc.category == "interview_results"
+
+    def test_document_category_values(self):
+        """Test Document category can be 'source' or 'interview_results'."""
+        source_doc = Document(
+            project_id="test-123",
+            filename="source.pdf",
+            file_type="pdf",
+            file_size=1024,
+            category="source",
+        )
+        interview_doc = Document(
+            project_id="test-123",
+            filename="interview.pdf",
+            file_type="pdf",
+            file_size=1024,
+            category="interview_results",
+        )
+
+        assert source_doc.category == "source"
+        assert interview_doc.category == "interview_results"
+
+
 class TestEnums:
     """Test enum values."""
 

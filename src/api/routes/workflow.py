@@ -40,9 +40,9 @@ class StartAnalysisResponse(BaseModel):
 
 
 class SubmitTranscriptRequest(BaseModel):
-    """Request model for submitting interview transcript."""
+    """Request model for submitting interview results."""
     project_id: str = Field(..., description="Project ID")
-    transcript: str = Field(..., description="Interview transcript text")
+    transcript: Optional[str] = Field(None, description="Interview transcript text (optional if documents uploaded)")
 
 
 class SubmitTranscriptResponse(BaseModel):
@@ -180,21 +180,22 @@ async def start_analysis(
     "/workflow/resume",
     response_model=SubmitTranscriptResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Resume workflow with transcript",
-    description="Submit interview transcript and resume the analysis.",
+    summary="Resume workflow with interview results",
+    description="Submit interview results (transcript or uploaded documents) and resume the analysis.",
 )
 async def submit_transcript(
     request: SubmitTranscriptRequest,
     background_tasks: BackgroundTasks,
 ):
     """
-    Submit interview transcript and resume analysis.
+    Submit interview results and resume analysis.
 
     This will:
     1. Resume from the human breakpoint
-    2. Perform gap analysis
-    3. Generate solution recommendations
-    4. Create final report
+    2. Process interview result documents (if uploaded) or transcript text
+    3. Perform gap analysis
+    4. Generate solution recommendations
+    5. Create final report
     """
     project_id = request.project_id
     transcript = request.transcript
@@ -220,14 +221,25 @@ async def submit_transcript(
     if not current_state or not current_state.get("is_suspended"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workflow is not suspended. Cannot submit transcript.",
+            detail="Workflow is not suspended. Cannot submit interview results.",
+        )
+
+    # Get interview result documents
+    interview_docs = state_manager.get_project_documents(project_id, category="interview_results")
+
+    # Validate that we have either transcript or documents
+    if not transcript and not interview_docs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide either a transcript text or upload interview result documents.",
         )
 
     try:
-        # Resume workflow with transcript
-        final_state = await consultant_graph.resume_with_transcript(
+        # Resume workflow with transcript and/or interview documents
+        final_state = await consultant_graph.resume_with_interview_results(
             thread_id=thread_id,
             transcript=transcript,
+            interview_documents=interview_docs,
         )
 
         # Save final state

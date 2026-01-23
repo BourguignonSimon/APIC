@@ -156,35 +156,53 @@ def page_home():
         unsafe_allow_html=True
     )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
+        st.markdown("### Step 0: Create Project")
+        st.markdown("""
+        Create a dedicated project for your client:
+        - Define project name and client
+        - Set target departments
+        """)
+
         st.markdown("### Step 1: Upload Documents")
         st.markdown("""
-        Upload your process documentation:
-        - Standard Operating Procedures (SOPs)
-        - Process flow diagrams
-        - Policy documents
-        - Training materials
+        Upload source documentation:
+        - SOPs, process flow diagrams
+        - Policy documents, training materials
+        - Website URLs, public company data
+        """)
+
+        st.markdown("### Step 2: Analysis & Interview Preparation")
+        st.markdown("""
+        Agents analyze your documents to:
+        - Generate hypotheses about inefficiencies
+        - Create targeted interview questions
         """)
 
     with col2:
-        st.markdown("### Step 2: Review Interview Script")
+        st.markdown("### Step 3: Interview Script")
         st.markdown("""
-        APIC will analyze your documents and generate:
-        - Hypotheses about inefficiencies
-        - Targeted interview questions
-        - Role-specific question sets
+        Use the generated script to conduct
+        customer interviews with role-specific
+        questions and follow-ups.
         """)
 
-    with col3:
-        st.markdown("### Step 3: Get Recommendations")
+        st.markdown("### Step 4: Upload Interview Results")
         st.markdown("""
-        After the interview, receive:
-        - Gap analysis report
+        After the interview, upload results:
+        - Interview transcripts & notes
+        - Recordings, additional documents
+        - Agents generate gap analysis & solutions
+        """)
+
+        st.markdown("### Step 5: Final Report")
+        st.markdown("""
+        Receive comprehensive report:
+        - Executive summary & key findings
         - Automation recommendations
-        - ROI estimates
-        - Implementation roadmap
+        - ROI estimates & implementation roadmap
         """)
 
     st.divider()
@@ -393,9 +411,10 @@ def page_project_detail():
                             for e in hypo['evidence'][:3]:
                                 st.markdown(f"- {e}")
 
-    # Interview Tab
+    # Interview Tab (Step 3: Interview Script)
     with tab3:
         st.markdown("### Interview Script")
+        st.caption("Use this script to conduct your interview with the customer. After the interview, proceed to the Results tab to upload the interview results.")
 
         script_response = api_request("GET", f"/workflow/{project_id}/interview-script")
 
@@ -421,46 +440,111 @@ def page_project_detail():
             st.markdown("#### Closing Notes")
             st.markdown(script.get("closing_notes", ""))
 
-            # Transcript submission
             st.divider()
-            st.markdown("### Submit Interview Transcript")
+            st.success("Interview script is ready. After conducting the interview, go to the **Results** tab to upload your interview results and generate the report.")
+        else:
+            st.info("Interview script not yet generated. Start analysis first.")
 
-            transcript = st.text_area(
-                "Paste the interview transcript here",
-                height=300,
-                placeholder="Enter the interview notes or transcript..."
+    # Results Tab (Step 4: Upload Interview Results & View Analysis)
+    with tab4:
+        st.markdown("### Interview Results & Analysis")
+
+        # Check if workflow is suspended (awaiting interview results)
+        status_response = api_request("GET", f"/workflow/{project_id}/status")
+        is_suspended = status_response and status_response.get("is_suspended", False)
+
+        # Check for existing gap analyses
+        gaps_response = api_request("GET", f"/workflow/{project_id}/gaps")
+        has_results = gaps_response and gaps_response.get("gap_analyses")
+
+        # If awaiting interview results or no results yet, show upload section
+        if is_suspended or not has_results:
+            st.markdown("#### Upload Interview Results")
+            st.caption("Upload the interview results documents (transcripts, notes, recordings) and/or paste transcript text to generate the analysis report.")
+
+            # Upload interview result documents
+            uploaded_files = st.file_uploader(
+                "Upload interview result documents",
+                type=["pdf", "docx", "doc", "txt", "pptx", "xlsx"],
+                accept_multiple_files=True,
+                key="interview_results_uploader",
             )
 
-            if st.button("Submit Transcript and Continue", use_container_width=True):
-                if not transcript:
-                    st.error("Please enter the interview transcript.")
+            if uploaded_files:
+                if st.button("Upload Interview Documents", key="upload_interview_docs"):
+                    files = [("files", (f.name, f, f.type)) for f in uploaded_files]
+                    response = requests.post(
+                        f"{API_BASE_URL}/projects/{project_id}/interview-results",
+                        files=files,
+                    )
+                    if response.ok:
+                        st.success("Interview documents uploaded successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to upload interview documents.")
+
+            # List existing interview result documents
+            interview_docs_response = api_request(
+                "GET", f"/projects/{project_id}/documents?category=interview_results"
+            )
+            if interview_docs_response and interview_docs_response.get("documents"):
+                st.markdown("**Uploaded Interview Documents:**")
+                for doc in interview_docs_response["documents"]:
+                    st.markdown(f"- {doc.get('filename', 'Unknown')} ({doc.get('file_type', 'N/A').upper()})")
+
+            st.divider()
+
+            # Optional transcript text
+            st.markdown("#### Or Paste Interview Transcript (Optional)")
+            transcript = st.text_area(
+                "Paste the interview transcript here",
+                height=200,
+                placeholder="Enter the interview notes or transcript text...",
+                key="transcript_text_area",
+            )
+
+            st.divider()
+
+            # Check if we have documents or transcript
+            has_interview_docs = (
+                interview_docs_response
+                and interview_docs_response.get("documents")
+                and len(interview_docs_response["documents"]) > 0
+            )
+
+            # Submit button
+            can_submit = has_interview_docs or transcript
+            if st.button(
+                "Generate Analysis Report",
+                disabled=not can_submit,
+                use_container_width=True,
+                key="generate_report_btn",
+            ):
+                if not can_submit:
+                    st.error("Please upload interview documents or paste transcript text.")
                 else:
-                    with st.spinner("Processing transcript and generating recommendations..."):
+                    with st.spinner("Processing interview results and generating report..."):
                         result = api_request(
                             "POST",
                             "/workflow/resume",
                             json={
                                 "project_id": project_id,
-                                "transcript": transcript,
+                                "transcript": transcript if transcript else None,
                             },
                         )
 
                         if result:
-                            st.success("Analysis complete! Check the Results tab.")
+                            st.success("Analysis complete! Report generated.")
                             updated = api_request("GET", f"/projects/{project_id}")
                             if updated:
                                 st.session_state.current_project = updated
                             st.rerun()
-        else:
-            st.info("Interview script not yet generated. Start analysis first.")
 
-    # Results Tab
-    with tab4:
-        st.markdown("### Analysis Results")
+            if not can_submit:
+                st.warning("Upload interview result documents or paste transcript text to continue.")
 
-        # Gap Analysis
-        gaps_response = api_request("GET", f"/workflow/{project_id}/gaps")
-        if gaps_response and gaps_response.get("gap_analyses"):
+        # Show results if available
+        if has_results:
             st.markdown("#### Gap Analysis")
             for gap in gaps_response["gap_analyses"]:
                 with st.expander(f"{gap.get('process_step', 'Unknown')}"):
@@ -469,19 +553,16 @@ def page_project_detail():
                     st.markdown(f"**Gap:** {gap.get('gap_description', 'N/A')}")
                     st.markdown(f"**Impact:** {gap.get('impact', 'N/A')}")
 
-        # Solutions
-        solutions_response = api_request("GET", f"/workflow/{project_id}/solutions")
-        if solutions_response and solutions_response.get("solutions"):
-            st.markdown("#### Recommended Solutions")
-            for sol in solutions_response["solutions"]:
-                with st.expander(f"{sol.get('process_step', 'Unknown')} - {sol.get('pain_point_severity', 'N/A')} Priority"):
-                    st.markdown(f"**Solution:** {sol.get('proposed_solution', 'N/A')}")
-                    st.markdown(f"**Tech Stack:** {', '.join(sol.get('tech_stack_recommendation', []))}")
-                    st.markdown(f"**ROI:** {sol.get('estimated_roi_hours', 0)} hours/month saved")
-                    st.markdown(f"**Complexity:** {sol.get('implementation_complexity', 'N/A')}")
-
-        if not gaps_response or not gaps_response.get("gap_analyses"):
-            st.info("Results not yet available. Complete the interview process first.")
+            # Solutions
+            solutions_response = api_request("GET", f"/workflow/{project_id}/solutions")
+            if solutions_response and solutions_response.get("solutions"):
+                st.markdown("#### Recommended Solutions")
+                for sol in solutions_response["solutions"]:
+                    with st.expander(f"{sol.get('process_step', 'Unknown')} - {sol.get('pain_point_severity', 'N/A')} Priority"):
+                        st.markdown(f"**Solution:** {sol.get('proposed_solution', 'N/A')}")
+                        st.markdown(f"**Tech Stack:** {', '.join(sol.get('tech_stack_recommendation', []))}")
+                        st.markdown(f"**ROI:** {sol.get('estimated_roi_hours', 0)} hours/month saved")
+                        st.markdown(f"**Complexity:** {sol.get('implementation_complexity', 'N/A')}")
 
     # Report Tab
     with tab5:

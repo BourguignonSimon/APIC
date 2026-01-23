@@ -77,6 +77,74 @@ class TestConsultantGraph:
             assert result is not None
 
     @pytest.mark.asyncio
+    async def test_resume_with_interview_results_transcript_only(self, graph):
+        """Test resume_with_interview_results with transcript only."""
+        thread_id = str(uuid.uuid4())
+
+        with patch.object(graph, 'workflow', create=True) as mock_workflow:
+            mock_workflow.get_state.return_value = MagicMock(
+                values={"project_id": "test", "is_suspended": True}
+            )
+            mock_workflow.ainvoke = AsyncMock(return_value={"status": "completed"})
+
+            result = await graph.resume_with_interview_results(
+                thread_id=thread_id,
+                transcript="Interview transcript text",
+                interview_documents=None,
+            )
+
+            assert result is not None
+            assert "status" in result or result.get("transcript_received")
+
+    @pytest.mark.asyncio
+    async def test_resume_with_interview_results_documents_only(self, graph):
+        """Test resume_with_interview_results with documents only."""
+        thread_id = str(uuid.uuid4())
+        interview_docs = [
+            {"id": "doc1", "filename": "interview.pdf", "category": "interview_results"}
+        ]
+
+        with patch.object(graph, 'workflow', create=True) as mock_workflow:
+            mock_workflow.get_state.return_value = MagicMock(
+                values={"project_id": "test", "is_suspended": True}
+            )
+            mock_workflow.ainvoke = AsyncMock(return_value={"status": "completed"})
+
+            result = await graph.resume_with_interview_results(
+                thread_id=thread_id,
+                transcript=None,
+                interview_documents=interview_docs,
+            )
+
+            assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_resume_with_interview_results_both(self, graph):
+        """Test resume_with_interview_results with both transcript and documents."""
+        thread_id = str(uuid.uuid4())
+        interview_docs = [
+            {"id": "doc1", "filename": "interview.pdf", "category": "interview_results"}
+        ]
+
+        with patch.object(graph, 'workflow', create=True) as mock_workflow:
+            mock_workflow.get_state.return_value = MagicMock(
+                values={"project_id": "test", "is_suspended": True}
+            )
+            mock_workflow.ainvoke = AsyncMock(return_value={
+                "status": "completed",
+                "transcript": "Combined transcript",
+                "interview_documents": interview_docs,
+            })
+
+            result = await graph.resume_with_interview_results(
+                thread_id=thread_id,
+                transcript="Additional notes",
+                interview_documents=interview_docs,
+            )
+
+            assert result is not None
+
+    @pytest.mark.asyncio
     async def test_workflow_handles_errors_gracefully(self, graph, initial_state):
         """Test that workflow handles errors without crashing."""
         with patch.object(graph, 'state_manager') as mock_sm:
