@@ -19,25 +19,6 @@ from src.models.schemas import (
 from config.settings import settings
 
 
-# Role-specific question templates
-ROLE_TEMPLATES = {
-    "executive": {
-        "focus_areas": ["strategic priorities", "business outcomes", "resource allocation"],
-        "question_style": "high-level, strategic, outcome-focused",
-    },
-    "manager": {
-        "focus_areas": ["team processes", "bottlenecks", "resource constraints"],
-        "question_style": "operational, process-oriented, team-focused",
-    },
-    "operational": {
-        "focus_areas": ["daily tasks", "pain points", "workarounds"],
-        "question_style": "detailed, task-specific, practical",
-    },
-    "technical": {
-        "focus_areas": ["systems", "integrations", "data flows"],
-        "question_style": "technical, system-oriented, data-focused",
-    },
-}
 
 
 class InterviewArchitectAgent(BaseAgent):
@@ -84,16 +65,42 @@ class InterviewArchitectAgent(BaseAgent):
                 state["messages"].append("No hypotheses available for interview generation")
                 return state
 
-            # Determine roles to interview
+            # First, analyze the hypotheses to understand key themes and priorities
+            self.log_info("Analyzing hypotheses to identify key themes and priorities")
+            analysis = await self._analyze_hypotheses(hypotheses, target_departments)
+
+            # Determine roles to interview based on analysis
             target_roles = await self._determine_target_roles(
                 hypotheses,
                 target_departments,
+                analysis,
             )
 
-            # Generate questions for each role
+            # Generate questions for each role based on analysis
             questions = await self._generate_questions(
                 hypotheses,
                 target_roles,
+                analysis,
+            )
+
+            # Generate tailored introduction based on analysis
+            introduction = await self._generate_introduction(
+                hypotheses,
+                target_departments,
+                analysis,
+            )
+
+            # Generate tailored closing notes based on analysis
+            closing_notes = await self._generate_closing_notes(
+                hypotheses,
+                questions,
+                analysis,
+            )
+
+            # Estimate duration based on question complexity
+            estimated_duration = await self._estimate_duration(
+                questions,
+                analysis,
             )
 
             # Create the interview script
@@ -101,10 +108,10 @@ class InterviewArchitectAgent(BaseAgent):
                 project_id=project_id,
                 target_departments=target_departments or self._extract_departments(hypotheses),
                 target_roles=target_roles,
-                introduction=self._generate_introduction(hypotheses),
+                introduction=introduction,
                 questions=questions,
-                closing_notes=self._generate_closing_notes(),
-                estimated_duration_minutes=self._estimate_duration(len(questions)),
+                closing_notes=closing_notes,
+                estimated_duration_minutes=estimated_duration,
                 generated_at=datetime.utcnow(),
             )
 
@@ -133,37 +140,148 @@ class InterviewArchitectAgent(BaseAgent):
             state["script_generation_complete"] = False
             return state
 
+    async def _analyze_hypotheses(
+        self,
+        hypotheses: List[Hypothesis],
+        departments: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Perform comprehensive analysis of hypotheses to identify key themes,
+        priorities, and focus areas for the interview script.
+
+        Args:
+            hypotheses: List of hypotheses to analyze
+            departments: Target departments
+
+        Returns:
+            Analysis dictionary with themes, priorities, and recommendations
+        """
+        system_prompt = """You are an expert management consultant analyzing operational
+inefficiencies. Perform a comprehensive analysis of the provided hypotheses to identify:
+
+1. Key themes and patterns across the hypotheses
+2. Priority areas that require the deepest investigation
+3. Potential root causes and interconnections between issues
+4. Risk areas that could indicate systemic problems
+5. Specific "Dull, Dirty, Dangerous" work patterns (repetitive, unpleasant, risky tasks)
+
+Your analysis will guide the creation of a targeted interview script."""
+
+        human_template = """Analyze the following hypotheses and provide a structured analysis:
+
+HYPOTHESES:
+{hypotheses}
+
+TARGET DEPARTMENTS: {departments}
+
+Provide your analysis as a JSON object with the following structure:
+{{
+    "key_themes": ["theme1", "theme2", ...],
+    "priority_areas": [
+        {{"area": "area name", "reason": "why this is high priority", "severity": "high/medium/low"}}
+    ],
+    "root_cause_patterns": ["pattern1", "pattern2", ...],
+    "interconnections": ["description of how issues connect"],
+    "ddd_indicators": {{
+        "dull_tasks": ["repetitive task indicators"],
+        "dirty_tasks": ["unpleasant work indicators"],
+        "dangerous_tasks": ["risky task indicators"]
+    }},
+    "interview_focus_recommendations": ["what to focus on in interviews"],
+    "risk_areas": ["areas that may indicate systemic problems"]
+}}
+
+Return ONLY the JSON object."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        hypotheses_text = "\n".join([
+            f"[{h.id}] Category: {h.category}\n"
+            f"   Process Area: {h.process_area}\n"
+            f"   Description: {h.description}\n"
+            f"   Evidence: {', '.join(h.evidence[:3]) if h.evidence else 'None'}\n"
+            f"   Confidence: {h.confidence}"
+            for h in hypotheses
+        ])
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                hypotheses=hypotheses_text,
+                departments=", ".join(departments) if departments else "Not specified",
+            )
+        )
+
+        try:
+            content = response.content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+
+            analysis = json.loads(content)
+            self.log_info(f"Analysis complete: identified {len(analysis.get('key_themes', []))} key themes")
+            return analysis
+
+        except Exception as e:
+            self.log_error(f"Failed to parse analysis: {e}")
+            # Return default analysis structure
+            return {
+                "key_themes": [h.category for h in hypotheses],
+                "priority_areas": [{"area": h.process_area, "reason": h.description, "severity": "medium"} for h in hypotheses[:3]],
+                "root_cause_patterns": [],
+                "interconnections": [],
+                "ddd_indicators": {"dull_tasks": [], "dirty_tasks": [], "dangerous_tasks": []},
+                "interview_focus_recommendations": ["Understand daily workflows", "Identify pain points"],
+                "risk_areas": [],
+            }
+
     async def _determine_target_roles(
         self,
         hypotheses: List[Hypothesis],
         departments: List[str],
+        analysis: Dict[str, Any],
     ) -> List[str]:
         """
-        Determine which roles should be interviewed based on hypotheses.
+        Determine which roles should be interviewed based on hypotheses and analysis.
 
         Args:
             hypotheses: List of hypotheses
             departments: Target departments
+            analysis: Analysis of hypotheses with key themes and priorities
 
         Returns:
             List of recommended roles to interview
         """
         # Get configurable prompts or use defaults
         default_system = """You are an expert management consultant. Based on the
-            hypotheses about operational inefficiencies, determine which roles
-            should be interviewed to validate these hypotheses.
+            hypotheses about operational inefficiencies and the analysis of key themes,
+            determine which roles should be interviewed to validate these hypotheses.
 
             Consider roles that:
             1. Are directly involved in the suspected inefficient processes
             2. Have visibility into the day-to-day operations
             3. Can provide insight into workarounds and pain points
             4. Have decision-making authority over process changes
+            5. Can speak to the identified priority areas and root cause patterns
             """
 
-        default_human = """Based on these hypotheses, recommend 3-5 roles to interview:
+        default_human = """Based on these hypotheses and analysis, recommend 3-5 roles to interview:
 
             HYPOTHESES:
             {hypotheses}
+
+            KEY THEMES FROM ANALYSIS:
+            {key_themes}
+
+            PRIORITY AREAS:
+            {priority_areas}
+
+            INTERVIEW FOCUS RECOMMENDATIONS:
+            {focus_recommendations}
 
             TARGET DEPARTMENTS: {departments}
 
@@ -183,10 +301,23 @@ class InterviewArchitectAgent(BaseAgent):
             for h in hypotheses
         ])
 
+        # Format analysis data
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        priority_areas = "\n".join([
+            f"- {p.get('area', 'Unknown')}: {p.get('reason', 'No reason')} (Severity: {p.get('severity', 'medium')})"
+            for p in analysis.get("priority_areas", [])
+        ])
+        focus_recommendations = "\n".join([
+            f"- {r}" for r in analysis.get("interview_focus_recommendations", [])
+        ])
+
         response = await self.llm.ainvoke(
             prompt.format_messages(
                 hypotheses=hypotheses_text,
                 departments=", ".join(departments) if departments else "Not specified",
+                key_themes=key_themes or "Not identified",
+                priority_areas=priority_areas or "Not identified",
+                focus_recommendations=focus_recommendations or "Not identified",
             )
         )
 
@@ -212,13 +343,15 @@ class InterviewArchitectAgent(BaseAgent):
         self,
         hypotheses: List[Hypothesis],
         target_roles: List[str],
+        analysis: Dict[str, Any],
     ) -> List[InterviewQuestion]:
         """
-        Generate interview questions based on hypotheses and target roles.
+        Generate interview questions based on hypotheses, target roles, and analysis.
 
         Args:
             hypotheses: List of hypotheses to validate
             target_roles: Roles to be interviewed
+            analysis: Analysis of hypotheses with key themes and priorities
 
         Returns:
             List of interview questions
@@ -232,6 +365,8 @@ class InterviewArchitectAgent(BaseAgent):
             3. Identify hidden workarounds and unofficial processes
             4. Understand the gap between documented procedures (SOPs) and reality
             5. Quantify the impact of current pain points
+            6. Explore the root cause patterns identified in the analysis
+            7. Investigate the interconnections between different issues
 
             For each question, specify:
             - The target role
@@ -250,7 +385,25 @@ class InterviewArchitectAgent(BaseAgent):
 
             ROLES TO INTERVIEW: {roles}
 
-            Generate 8-15 questions total, distributed across roles.
+            KEY THEMES IDENTIFIED:
+            {key_themes}
+
+            PRIORITY AREAS TO INVESTIGATE:
+            {priority_areas}
+
+            ROOT CAUSE PATTERNS TO EXPLORE:
+            {root_cause_patterns}
+
+            "DULL, DIRTY, DANGEROUS" INDICATORS:
+            - Dull (repetitive): {dull_tasks}
+            - Dirty (unpleasant): {dirty_tasks}
+            - Dangerous (risky): {dangerous_tasks}
+
+            RISK AREAS:
+            {risk_areas}
+
+            Generate 8-15 questions total, distributed across roles. Ensure questions
+            specifically target the priority areas and root cause patterns identified.
 
             Return a JSON array of question objects:
             [
@@ -278,10 +431,30 @@ class InterviewArchitectAgent(BaseAgent):
             for h in hypotheses
         ])
 
+        # Format analysis data
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        priority_areas = "\n".join([
+            f"- {p.get('area', 'Unknown')}: {p.get('reason', 'No reason')}"
+            for p in analysis.get("priority_areas", [])
+        ])
+        root_cause_patterns = ", ".join(analysis.get("root_cause_patterns", ["None identified"]))
+        ddd = analysis.get("ddd_indicators", {})
+        dull_tasks = ", ".join(ddd.get("dull_tasks", ["None identified"]))
+        dirty_tasks = ", ".join(ddd.get("dirty_tasks", ["None identified"]))
+        dangerous_tasks = ", ".join(ddd.get("dangerous_tasks", ["None identified"]))
+        risk_areas = ", ".join(analysis.get("risk_areas", ["None identified"]))
+
         response = await self.llm.ainvoke(
             prompt.format_messages(
                 hypotheses=hypotheses_text,
                 roles=", ".join(target_roles),
+                key_themes=key_themes or "Not identified",
+                priority_areas=priority_areas or "Not identified",
+                root_cause_patterns=root_cause_patterns,
+                dull_tasks=dull_tasks,
+                dirty_tasks=dirty_tasks,
+                dangerous_tasks=dangerous_tasks,
+                risk_areas=risk_areas,
             )
         )
 
@@ -359,12 +532,78 @@ class InterviewArchitectAgent(BaseAgent):
         ]
         return default_questions
 
-    def _generate_introduction(self, hypotheses: List[Hypothesis]) -> str:
-        """Generate introduction for the interview."""
-        categories = set(h.category for h in hypotheses)
-        focus_areas = ", ".join(categories)
+    async def _generate_introduction(
+        self,
+        hypotheses: List[Hypothesis],
+        departments: List[str],
+        analysis: Dict[str, Any],
+    ) -> str:
+        """
+        Generate a tailored introduction for the interview based on analysis.
 
-        return f"""Thank you for taking the time to speak with us today. We're conducting
+        Args:
+            hypotheses: List of hypotheses
+            departments: Target departments
+            analysis: Analysis of hypotheses
+
+        Returns:
+            Tailored introduction text
+        """
+        system_prompt = """You are an expert management consultant preparing to conduct
+an interview as part of a process improvement initiative. Write a warm, professional
+introduction that:
+
+1. Thanks the interviewee for their time
+2. Explains the purpose of the interview (process improvement)
+3. Mentions the key areas of focus without being leading or biased
+4. Reassures them there are no wrong answers
+5. Sets expectations for confidentiality and how feedback will be used
+6. Invites any questions before beginning
+
+Keep the tone conversational and approachable. The introduction should be 3-4 paragraphs."""
+
+        human_template = """Create an interview introduction based on this context:
+
+KEY THEMES TO EXPLORE: {key_themes}
+
+PRIORITY AREAS: {priority_areas}
+
+TARGET DEPARTMENTS: {departments}
+
+HYPOTHESIS CATEGORIES: {categories}
+
+Write a professional, warm introduction that naturally references the areas of focus
+without revealing specific hypotheses or biasing the interviewee.
+
+Return ONLY the introduction text, no JSON or formatting."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        categories = ", ".join(set(h.category for h in hypotheses))
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        priority_areas = ", ".join([
+            p.get("area", "") for p in analysis.get("priority_areas", [])
+        ])
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                key_themes=key_themes or "operational efficiency",
+                priority_areas=priority_areas or "day-to-day workflows",
+                departments=", ".join(departments) if departments else "various departments",
+                categories=categories or "process improvement",
+            )
+        )
+
+        introduction = response.content.strip()
+
+        # Ensure we have a valid introduction
+        if not introduction or len(introduction) < 100:
+            # Fallback to a basic introduction
+            focus_areas = ", ".join(set(h.category for h in hypotheses))
+            return f"""Thank you for taking the time to speak with us today. We're conducting
 this interview as part of a process improvement initiative. Our goal is to understand
 how work actually gets done day-to-day, identify any challenges or pain points, and
 find opportunities for improvement.
@@ -377,9 +616,73 @@ discussed will be used to help improve processes and make your work easier.
 
 Do you have any questions before we begin?"""
 
-    def _generate_closing_notes(self) -> str:
-        """Generate closing notes for the interview."""
-        return """Thank you for sharing your insights today. Your input is invaluable
+        return introduction
+
+    async def _generate_closing_notes(
+        self,
+        hypotheses: List[Hypothesis],
+        questions: List[InterviewQuestion],
+        analysis: Dict[str, Any],
+    ) -> str:
+        """
+        Generate tailored closing notes for the interview based on analysis.
+
+        Args:
+            hypotheses: List of hypotheses
+            questions: Generated interview questions
+            analysis: Analysis of hypotheses
+
+        Returns:
+            Tailored closing notes text
+        """
+        system_prompt = """You are an expert management consultant wrapping up an interview
+as part of a process improvement initiative. Write professional closing notes that:
+
+1. Thank the interviewee for their time and insights
+2. Include 2-3 open-ended final questions that might capture anything missed
+3. Ask for recommendations on who else to speak with
+4. Explain next steps in the process
+5. Leave the door open for follow-up
+
+Keep the tone warm and appreciative. The closing should be 2-3 paragraphs."""
+
+        human_template = """Create interview closing notes based on this context:
+
+KEY THEMES COVERED: {key_themes}
+
+TOPICS COVERED IN QUESTIONS: {question_topics}
+
+RISK AREAS EXPLORED: {risk_areas}
+
+Write professional closing notes that:
+1. Acknowledge the areas discussed
+2. Include strategic final questions that might reveal additional insights
+3. Set expectations for next steps
+
+Return ONLY the closing notes text, no JSON or formatting."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        question_topics = ", ".join(set([q.role + ": " + q.intent[:50] for q in questions[:5]]))
+        risk_areas = ", ".join(analysis.get("risk_areas", []))
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                key_themes=key_themes or "operational efficiency",
+                question_topics=question_topics or "workflows and processes",
+                risk_areas=risk_areas or "process improvement opportunities",
+            )
+        )
+
+        closing_notes = response.content.strip()
+
+        # Ensure we have valid closing notes
+        if not closing_notes or len(closing_notes) < 100:
+            return """Thank you for sharing your insights today. Your input is invaluable
 for understanding how we can improve processes.
 
 A few final questions:
@@ -391,11 +694,94 @@ We'll be synthesizing this feedback along with other interviews and will share o
 findings and recommendations. Please feel free to reach out if you think of anything
 else you'd like to add."""
 
-    def _estimate_duration(self, num_questions: int) -> int:
-        """Estimate interview duration based on question count."""
-        base_time = 15  # intro and closing
-        per_question = 5  # minutes per question with follow-ups
-        return base_time + (num_questions * per_question)
+        return closing_notes
+
+    async def _estimate_duration(
+        self,
+        questions: List[InterviewQuestion],
+        analysis: Dict[str, Any],
+    ) -> int:
+        """
+        Estimate interview duration based on questions and complexity analysis.
+
+        Args:
+            questions: List of interview questions
+            analysis: Analysis of hypotheses
+
+        Returns:
+            Estimated duration in minutes
+        """
+        system_prompt = """You are an expert interviewer estimating the duration of a
+business process improvement interview. Consider:
+
+1. Number of questions and their complexity
+2. Number of follow-up questions
+3. Complexity of topics being discussed
+4. Need for rapport building and context gathering
+5. Time for interviewee to provide detailed answers
+
+Provide a realistic estimate in minutes."""
+
+        human_template = """Estimate the duration for this interview:
+
+NUMBER OF QUESTIONS: {num_questions}
+
+TOTAL FOLLOW-UP QUESTIONS: {num_followups}
+
+QUESTION COMPLEXITY:
+- Questions targeting high-priority areas: {high_priority_count}
+- Questions exploring multiple themes: {multi_theme_count}
+
+KEY THEMES: {key_themes}
+
+RISK AREAS TO EXPLORE: {risk_areas}
+
+Return ONLY a single integer representing the estimated duration in minutes.
+Consider 3-5 minutes per main question, plus time for follow-ups, introduction, and closing."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        # Calculate metrics
+        num_questions = len(questions)
+        num_followups = sum(len(q.follow_ups) for q in questions)
+        priority_areas = [p.get("area", "").lower() for p in analysis.get("priority_areas", [])]
+        high_priority_count = sum(
+            1 for q in questions
+            if any(area in q.question.lower() or area in q.intent.lower() for area in priority_areas)
+        )
+        key_themes = analysis.get("key_themes", [])
+        multi_theme_count = sum(
+            1 for q in questions
+            if sum(1 for theme in key_themes if theme.lower() in q.question.lower()) > 1
+        )
+        risk_areas = ", ".join(analysis.get("risk_areas", []))
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                num_questions=num_questions,
+                num_followups=num_followups,
+                high_priority_count=high_priority_count,
+                multi_theme_count=multi_theme_count,
+                key_themes=", ".join(key_themes) if key_themes else "general process improvement",
+                risk_areas=risk_areas or "standard operational areas",
+            )
+        )
+
+        try:
+            # Extract just the number from the response
+            content = response.content.strip()
+            # Remove any non-numeric characters
+            duration = int("".join(filter(str.isdigit, content.split()[0] if content.split() else "60")))
+            # Ensure reasonable bounds
+            return max(30, min(duration, 120))
+        except (ValueError, IndexError):
+            # Fallback calculation
+            base_time = 15
+            per_question = 5
+            return base_time + (num_questions * per_question)
 
     def _extract_departments(self, hypotheses: List[Hypothesis]) -> List[str]:
         """Extract department names from hypothesis process areas."""
