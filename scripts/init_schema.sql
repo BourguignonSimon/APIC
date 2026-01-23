@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS documents (
     chunk_count VARCHAR(50) DEFAULT '0',
     processed BOOLEAN DEFAULT FALSE,
     content_summary TEXT,
-    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    category VARCHAR(50) DEFAULT 'general'
 );
 
 -- ============================================================================
@@ -84,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_project_states_current_node ON project_states(cur
 CREATE INDEX IF NOT EXISTS idx_documents_project_id ON documents(project_id);
 CREATE INDEX IF NOT EXISTS idx_documents_file_type ON documents(file_type);
 CREATE INDEX IF NOT EXISTS idx_documents_processed ON documents(processed);
+CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(category);
 
 -- ============================================================================
 -- Triggers

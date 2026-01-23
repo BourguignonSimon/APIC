@@ -97,6 +97,7 @@ class DocumentRecord(Base):
     processed = Column(Boolean, default=False)
     content_summary = Column(Text, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+    category = Column(String(50), default="general")
 
 
 class StateManager:
@@ -370,6 +371,7 @@ class StateManager:
         file_type: str,
         file_size: int,
         file_path: str,
+        category: str = "general",
     ) -> Dict[str, Any]:
         """
         Add a document record.
@@ -380,6 +382,7 @@ class StateManager:
             file_type: File type (pdf, docx, etc.)
             file_size: File size in bytes
             file_path: Path to stored file
+            category: Document category (general, interview_results, etc.)
 
         Returns:
             Document record
@@ -391,6 +394,7 @@ class StateManager:
                 file_type=file_type,
                 file_size=str(file_size),
                 file_path=file_path,
+                category=category,
             )
             session.add(doc)
             session.commit()
@@ -405,22 +409,29 @@ class StateManager:
                 "processed": doc.processed,
                 "chunk_count": int(doc.chunk_count),
                 "uploaded_at": doc.uploaded_at.isoformat(),
+                "category": doc.category,
             }
 
-    def get_project_documents(self, project_id: str) -> List[Dict[str, Any]]:
+    def get_project_documents(
+        self, project_id: str, category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Get all documents for a project.
+        Get all documents for a project, optionally filtered by category.
 
         Args:
             project_id: Project ID
+            category: Optional category filter (e.g., 'general', 'interview_results')
 
         Returns:
             List of documents
         """
         with self.get_session() as session:
-            docs = session.query(DocumentRecord).filter_by(
-                project_id=project_id
-            ).all()
+            query = session.query(DocumentRecord).filter_by(project_id=project_id)
+
+            if category is not None:
+                query = query.filter_by(category=category)
+
+            docs = query.all()
 
             return [
                 {
@@ -432,6 +443,7 @@ class StateManager:
                     "processed": d.processed,
                     "chunk_count": int(d.chunk_count),
                     "uploaded_at": d.uploaded_at.isoformat(),
+                    "category": d.category,
                 }
                 for d in docs
             ]
