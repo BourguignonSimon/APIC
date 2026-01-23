@@ -9,13 +9,18 @@
 # - name: Agent identifier (required)
 # - enabled: Whether the agent is active (default: true)
 # - model: Model configuration
-#   - provider: LLM provider (openai, anthropic, google)
-#   - model: Model identifier
+#   - provider: LLM provider (openai, anthropic, google) - if omitted, uses DEFAULT_LLM_PROVIDER from settings
+#   - model: Model identifier - if omitted, uses the default model for the provider
 #   - temperature: Sampling temperature (0.0-2.0)
 #   - max_tokens: Maximum tokens to generate
 # - prompts: Prompt templates
 #   - system: System prompt/role definition
 #   - templates: Named prompt templates for specific tasks
+#
+# Note: By default, agents use DEFAULT_LLM_PROVIDER from your environment/.env file.
+# To override a specific agent to use a different provider, add:
+#   model:
+#     provider: "anthropic"  # or "openai" or "google"
 
 version: "1.0"
 
@@ -24,8 +29,7 @@ agents:
     name: "IngestionAgent"
     enabled: true
     model:
-      provider: "openai"
-      model: "gpt-4o"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.3
       max_tokens: 2000
     prompts:
@@ -49,8 +53,7 @@ agents:
     name: "HypothesisGeneratorAgent"
     enabled: true
     model:
-      provider: "openai"
-      model: "gpt-4o"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.7
       max_tokens: 3000
     prompts:
@@ -77,8 +80,7 @@ agents:
     name: "InterviewArchitectAgent"
     enabled: true
     model:
-      provider: "openai"
-      model: "gpt-4o"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.7
       max_tokens: 3000
     prompts:
@@ -107,8 +109,7 @@ agents:
     name: "GapAnalystAgent"
     enabled: true
     model:
-      provider: "openai"
-      model: "gpt-4o"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.5
       max_tokens: 4000
     prompts:
@@ -138,8 +139,7 @@ agents:
     name: "SolutionArchitectAgent"
     enabled: true
     model:
-      provider: "openai"
-      model: "gpt-4o-2024-11-20"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.6
       max_tokens: 4000
     prompts:
@@ -169,8 +169,7 @@ agents:
     name: "ReportingAgent"
     enabled: true
     model:
-      provider: "anthropic"
-      model: "claude-3-5-sonnet-20241022"
+      # provider: Uses DEFAULT_LLM_PROVIDER from settings/environment
       temperature: 0.5
       max_tokens: 8000
     prompts:
