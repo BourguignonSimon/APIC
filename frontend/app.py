@@ -402,6 +402,79 @@ def page_project_detail():
         if script_response and script_response.get("interview_script"):
             script = script_response["interview_script"]
 
+            # Download buttons section
+            st.markdown("#### Download Interview Script")
+            st.markdown("Export the interview script to use during customer interviews:")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("Download PDF", key="download_pdf", use_container_width=True):
+                    try:
+                        response = requests.get(
+                            f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/pdf"
+                        )
+                        if response.ok:
+                            st.download_button(
+                                label="Save PDF File",
+                                data=response.content,
+                                file_name=f"interview_script_{project_id}.pdf",
+                                mime="application/pdf",
+                                key="save_pdf"
+                            )
+                        else:
+                            st.error("Failed to download PDF")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+
+            with col2:
+                if st.button("Download Word", key="download_docx", use_container_width=True):
+                    try:
+                        response = requests.get(
+                            f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/docx"
+                        )
+                        if response.ok:
+                            st.download_button(
+                                label="Save Word File",
+                                data=response.content,
+                                file_name=f"interview_script_{project_id}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key="save_docx"
+                            )
+                        else:
+                            st.error("Failed to download Word document")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+
+            with col3:
+                if st.button("Download Markdown", key="download_md", use_container_width=True):
+                    try:
+                        response = requests.get(
+                            f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/markdown"
+                        )
+                        if response.ok:
+                            st.download_button(
+                                label="Save Markdown File",
+                                data=response.content,
+                                file_name=f"interview_script_{project_id}.md",
+                                mime="text/markdown",
+                                key="save_md"
+                            )
+                        else:
+                            st.error("Failed to download Markdown")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+
+            # Show available files info
+            script_files = script_response.get("script_files")
+            if script_files:
+                with st.expander("Available Script Files"):
+                    for format_name, file_path in script_files.items():
+                        if file_path:
+                            st.markdown(f"- **{format_name.upper()}**: `{file_path}`")
+
+            st.divider()
+
             st.info(f"Estimated duration: {script.get('estimated_duration_minutes', 60)} minutes")
             st.markdown(f"**Target Roles:** {', '.join(script.get('target_roles', []))}")
 

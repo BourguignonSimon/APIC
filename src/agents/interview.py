@@ -16,6 +16,7 @@ from src.models.schemas import (
     InterviewScript,
     GraphState,
 )
+from src.services.interview_script_generator import get_interview_script_generator
 from config.settings import settings
 
 
@@ -116,11 +117,31 @@ class InterviewArchitectAgent(BaseAgent):
             )
 
             # Update state - SUSPEND for human interview
-            state["interview_script"] = interview_script.model_dump()
+            script_data = interview_script.model_dump()
+            state["interview_script"] = script_data
             state["script_generation_complete"] = True
             state["is_suspended"] = True
             state["suspension_reason"] = "Awaiting interview transcript"
             state["current_node"] = "interview"
+
+            # Generate interview script files (PDF, DOCX, Markdown)
+            script_file_paths = {}
+            try:
+                generator = get_interview_script_generator()
+                project_data = state.get("project", {})
+                if isinstance(project_data, dict):
+                    script_file_paths = generator.generate_all_formats(
+                        script_data,
+                        project_data
+                    )
+                    state["interview_script_files"] = script_file_paths
+                    self.log_info(
+                        f"Interview script files generated: {list(script_file_paths.keys())}"
+                    )
+            except Exception as e:
+                self.log_error(f"Failed to generate script files: {e}")
+                state["interview_script_files"] = {}
+
             state["messages"].append(
                 f"Generated interview script with {len(questions)} questions "
                 f"for roles: {', '.join(target_roles)}. "

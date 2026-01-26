@@ -32,9 +32,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Create required directories
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.REPORTS_DIR, exist_ok=True)
+    os.makedirs(settings.SCRIPTS_DIR, exist_ok=True)
 
     logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
     logger.info(f"Reports directory: {settings.REPORTS_DIR}")
+    logger.info(f"Scripts directory: {settings.SCRIPTS_DIR}")
 
     yield
 
@@ -89,6 +91,14 @@ def create_app() -> FastAPI:
             "/reports",
             StaticFiles(directory=settings.REPORTS_DIR),
             name="reports",
+        )
+
+    # Mount static files for interview scripts
+    if os.path.exists(settings.SCRIPTS_DIR):
+        app.mount(
+            "/scripts",
+            StaticFiles(directory=settings.SCRIPTS_DIR),
+            name="scripts",
         )
 
     # Include routers
