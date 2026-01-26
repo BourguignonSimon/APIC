@@ -9,7 +9,35 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON
+
+def serialize_state_data(data: Any) -> Any:
+    """
+    Recursively serialize data for JSON storage.
+
+    Converts datetime objects to ISO format strings and handles
+    nested dictionaries and lists.
+
+    Args:
+        data: Data to serialize
+
+    Returns:
+        JSON-serializable data
+    """
+    if isinstance(data, datetime):
+        return data.isoformat()
+    elif isinstance(data, dict):
+        return {key: serialize_state_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [serialize_state_data(item) for item in data]
+    elif hasattr(data, 'model_dump'):
+        # Handle Pydantic models
+        return serialize_state_data(data.model_dump())
+    elif hasattr(data, 'dict'):
+        # Handle older Pydantic models (v1)
+        return serialize_state_data(data.dict())
+    return data
+
+from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON, text, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -69,6 +97,7 @@ class DocumentRecord(Base):
     processed = Column(Boolean, default=False)
     content_summary = Column(Text, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+    category = Column(String(50), default="general")
 
 
 class StateManager:
@@ -97,7 +126,31 @@ class StateManager:
         # Create tables
         Base.metadata.create_all(self.engine)
 
+        # Run migrations for existing databases
+        self._run_migrations()
+
         logger.info("StateManager initialized")
+
+    def _run_migrations(self) -> None:
+        """Run database migrations for backward compatibility."""
+        inspector = inspect(self.engine)
+
+        # Check if documents table exists
+        if "documents" in inspector.get_table_names():
+            columns = [col["name"] for col in inspector.get_columns("documents")]
+
+            # Add category column if missing
+            if "category" not in columns:
+                logger.info("Running migration: Adding 'category' column to documents table")
+                with self.engine.connect() as conn:
+                    conn.execute(
+                        text("ALTER TABLE documents ADD COLUMN category VARCHAR(50) DEFAULT 'general'")
+                    )
+                    conn.execute(
+                        text("UPDATE documents SET category = 'general' WHERE category IS NULL")
+                    )
+                    conn.commit()
+                logger.info("Migration complete: 'category' column added")
 
     def get_session(self) -> Session:
         """Get a database session."""
@@ -236,13 +289,16 @@ class StateManager:
             thread_id: Thread ID
             state: State data
         """
+        # Serialize state data to ensure datetime objects are JSON-compatible
+        serialized_state = serialize_state_data(state)
+
         with self.get_session() as session:
             existing = session.query(ProjectState).filter_by(
                 project_id=project_id
             ).first()
 
             if existing:
-                existing.state_data = state
+                existing.state_data = serialized_state
                 existing.current_node = state.get("current_node", "unknown")
                 existing.is_suspended = state.get("is_suspended", False)
                 existing.suspension_reason = state.get("suspension_reason")
@@ -251,7 +307,7 @@ class StateManager:
                 project_state = ProjectState(
                     project_id=project_id,
                     thread_id=thread_id,
-                    state_data=state,
+                    state_data=serialized_state,
                     current_node=state.get("current_node", "start"),
                     is_suspended=state.get("is_suspended", False),
                     suspension_reason=state.get("suspension_reason"),
@@ -339,6 +395,7 @@ class StateManager:
         file_type: str,
         file_size: int,
         file_path: str,
+        category: str = "general",
     ) -> Dict[str, Any]:
         """
         Add a document record.
@@ -349,6 +406,7 @@ class StateManager:
             file_type: File type (pdf, docx, etc.)
             file_size: File size in bytes
             file_path: Path to stored file
+            category: Document category (general, interview_results, etc.)
 
         Returns:
             Document record
@@ -360,6 +418,7 @@ class StateManager:
                 file_type=file_type,
                 file_size=str(file_size),
                 file_path=file_path,
+                category=category,
             )
             session.add(doc)
             session.commit()
@@ -371,33 +430,44 @@ class StateManager:
                 "file_type": doc.file_type,
                 "file_size": int(doc.file_size),
                 "file_path": doc.file_path,
+                "processed": doc.processed,
+                "chunk_count": int(doc.chunk_count),
                 "uploaded_at": doc.uploaded_at.isoformat(),
+                "category": doc.category,
             }
 
-    def get_project_documents(self, project_id: str) -> List[Dict[str, Any]]:
+    def get_project_documents(
+        self, project_id: str, category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Get all documents for a project.
+        Get all documents for a project, optionally filtered by category.
 
         Args:
             project_id: Project ID
+            category: Optional category filter (e.g., 'general', 'interview_results')
 
         Returns:
             List of documents
         """
         with self.get_session() as session:
-            docs = session.query(DocumentRecord).filter_by(
-                project_id=project_id
-            ).all()
+            query = session.query(DocumentRecord).filter_by(project_id=project_id)
+
+            if category is not None:
+                query = query.filter_by(category=category)
+
+            docs = query.all()
 
             return [
                 {
                     "id": d.id,
+                    "project_id": d.project_id,
                     "filename": d.filename,
                     "file_type": d.file_type,
                     "file_size": int(d.file_size),
                     "processed": d.processed,
                     "chunk_count": int(d.chunk_count),
                     "uploaded_at": d.uploaded_at.isoformat(),
+                    "category": d.category,
                 }
                 for d in docs
             ]

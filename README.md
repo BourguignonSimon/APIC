@@ -196,6 +196,64 @@ Access the final deliverable:
 - Implementation roadmap
 - PDF report
 
+## Agent Configuration
+
+APIC allows you to configure each agent individually with custom models and prompts. This enables you to:
+
+- **Use different LLM providers** for different agents (OpenAI, Anthropic, Google)
+- **Optimize costs** by using faster models for simple tasks and premium models for complex analysis
+- **Customize prompts** to match your specific use case or industry
+- **Fine-tune model parameters** like temperature and token limits per agent
+
+### Configuration File
+
+Create or edit `config/agents.yaml` to configure agents:
+
+```yaml
+version: "1.0"
+
+agents:
+  hypothesis:
+    model:
+      provider: "openai"
+      model: "gpt-4o"
+      temperature: 0.7
+    prompts:
+      system: "You are an expert management consultant..."
+
+  reporting:
+    model:
+      provider: "anthropic"
+      model: "claude-3-5-sonnet-20241022"
+      temperature: 0.5
+```
+
+### Available Agents
+
+- `ingestion` - Document processing and summarization
+- `hypothesis` - Inefficiency identification
+- `interview` - Interview script generation
+- `gap_analyst` - SOP vs reality comparison
+- `solution` - Solution recommendations
+- `reporting` - Report generation
+
+### Example: Budget-Conscious Setup
+
+```yaml
+agents:
+  ingestion:
+    model:
+      provider: "openai"
+      model: "gpt-4o-mini"  # Fast, cheap for document processing
+
+  reporting:
+    model:
+      provider: "anthropic"
+      model: "claude-3-5-sonnet-20241022"  # Premium for final report
+```
+
+For detailed configuration options, see [Agent Configuration Guide](docs/AGENT_CONFIGURATION.md).
+
 ## API Endpoints
 
 ### Projects

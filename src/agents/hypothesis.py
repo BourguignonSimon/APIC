@@ -172,8 +172,8 @@ class HypothesisGeneratorAgent(BaseAgent):
         Returns:
             List of generated hypotheses
         """
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert management consultant specializing in
+        # Get configurable prompts or use defaults
+        default_system = """You are an expert management consultant specializing in
             process improvement and operational efficiency. Your task is to analyze
             corporate documents and identify potential areas of inefficiency.
 
@@ -193,8 +193,9 @@ class HypothesisGeneratorAgent(BaseAgent):
             - Keywords/patterns that triggered this hypothesis
             - A confidence score (0.0 to 1.0)
             - A category (manual_process, communication_gap, data_silos, delays, errors, approvals, hidden_factories, general)
-            """),
-            ("human", """Analyze the following documents and generate hypotheses about
+            """
+
+        default_human = """Analyze the following documents and generate hypotheses about
             operational inefficiencies.
 
             DOCUMENT SUMMARIES:
@@ -211,7 +212,14 @@ class HypothesisGeneratorAgent(BaseAgent):
             - confidence: number between 0 and 1
             - category: string
 
-            Return ONLY the JSON array, no additional text."""),
+            Return ONLY the JSON array, no additional text."""
+
+        system_prompt = self.get_prompt("system", default_system)
+        human_template = self.get_prompt("generate_hypotheses", default_human)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
         ])
 
         formatted_prompt = prompt.format_messages(

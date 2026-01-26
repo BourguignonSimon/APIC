@@ -11,8 +11,9 @@ services:
       POSTGRES_DB: apic
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql:ro
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -36,7 +37,7 @@ services:
       - ./uploads:/app/uploads
       - ./reports:/app/reports
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +51,7 @@ services:
     environment:
       - API_BASE_URL=http://api:8000/api/v1
     ports:
-      - "8501:8501"
+      - "8502:8501"
     depends_on:
       - api
 

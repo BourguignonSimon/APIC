@@ -16,6 +16,7 @@ Usage:
 
 import os
 from typing import Optional
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -72,6 +73,12 @@ class Settings(BaseSettings):
     # Generation parameters affecting response style
     LLM_TEMPERATURE: float = Field(default=0.7)  # 0.0 = deterministic, 1.0 = creative
     LLM_MAX_TOKENS: int = Field(default=4096)  # Maximum response length
+
+    # =========================================================================
+    # Agent Configuration
+    # =========================================================================
+    # Path to agent configuration file (YAML) for per-agent model and prompt settings
+    AGENT_CONFIG_PATH: str = Field(default="config/agents.yaml")
 
     # =========================================================================
     # Vector Database (Pinecone)
@@ -159,3 +166,19 @@ def get_settings() -> Settings:
         print(settings.API_PORT)
     """
     return settings
+
+
+def get_agent_config():
+    """
+    Get the agent configuration registry.
+
+    Loads agent configurations from the YAML file specified in settings.
+    Returns empty registry if file doesn't exist.
+
+    Returns:
+        AgentConfigRegistry: Registry containing all agent configurations
+    """
+    from config.agent_config import AgentConfigRegistry
+
+    config_path = Path(settings.AGENT_CONFIG_PATH)
+    return AgentConfigRegistry.load_from_file(config_path)

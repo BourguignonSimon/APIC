@@ -10,11 +10,10 @@ from datetime import datetime
 
 from langchain_core.documents import Document as LCDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, get_embeddings
 from src.models.schemas import Document, GraphState, ProjectStatus
 from config.settings import settings
 
@@ -38,10 +37,16 @@ class IngestionAgent(BaseAgent):
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
-        self.embeddings = OpenAIEmbeddings(
-            api_key=settings.OPENAI_API_KEY,
-            model="text-embedding-3-small",
-        )
+        # Embeddings are lazy-loaded when needed to allow for missing API keys
+        # during initialization (validation happens when actually used)
+        self._embeddings = None
+
+    @property
+    def embeddings(self):
+        """Lazy-load embeddings to defer API key validation until actually needed."""
+        if self._embeddings is None:
+            self._embeddings = get_embeddings()
+        return self._embeddings
 
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -92,13 +97,20 @@ class IngestionAgent(BaseAgent):
                     doc.processed = True
                     doc.content_summary = summary
 
-            # Store chunks in vector database
+            # Store chunks in vector database with graceful degradation
             if all_chunks:
-                await self._store_in_vector_db(
-                    chunks=all_chunks,
-                    namespace=f"client_{project_id}",
-                )
-                self.log_info(f"Stored {len(all_chunks)} chunks in vector database")
+                try:
+                    await self._store_in_vector_db(
+                        chunks=all_chunks,
+                        namespace=f"client_{project_id}",
+                    )
+                    self.log_info(f"Stored {len(all_chunks)} chunks in vector database")
+                except Exception as vector_error:
+                    self.log_error(f"Vector storage failed, continuing without it: {vector_error}")
+                    state["messages"].append(
+                        f"Warning: Vector storage unavailable. "
+                        f"Document processing completed but semantic search may be limited."
+                    )
 
             # Update state
             state["documents"] = [
@@ -240,14 +252,15 @@ class IngestionAgent(BaseAgent):
         if len(content) > max_content_length:
             truncated_content += "... [truncated]"
 
-        prompt = f"""Analyze the following document and provide a concise summary
+        # Get configurable prompt or use default
+        default_prompt = """Analyze the following document and provide a concise summary
         that captures the main topics, processes, and any potential areas
         of operational inefficiency or improvement.
 
         Document: {filename}
 
         Content:
-        {truncated_content}
+        {content}
 
         Provide a summary in 2-3 paragraphs focusing on:
         1. Main purpose and content of the document
@@ -255,8 +268,49 @@ class IngestionAgent(BaseAgent):
         3. Any notable patterns, pain points, or areas that might benefit from automation
         """
 
+        prompt_template = self.get_prompt("summary", default_prompt)
+        prompt = prompt_template.format(filename=filename, content=truncated_content)
+
         response = await self.llm.ainvoke(prompt)
         return response.content
+
+    async def _get_or_generate_summary(
+        self,
+        document_id: str,
+        content: str,
+        filename: str = "document"
+    ) -> str:
+        """
+        Get cached summary or generate a new one.
+
+        Args:
+            document_id: Unique document identifier
+            content: Document content
+            filename: Name of the file
+
+        Returns:
+            Document summary
+        """
+        from src.services.llm_cache import get_llm_cache
+
+        cache = get_llm_cache()
+
+        # Create cache key from document ID
+        cache_key = f"summary_{document_id}"
+
+        # Try to get from cache
+        cached_summary = await cache.get(cache_key)
+        if cached_summary:
+            self.log_info(f"Using cached summary for document {document_id}")
+            return cached_summary
+
+        # Generate new summary
+        summary = await self._generate_summary(content, filename)
+
+        # Cache for future use
+        await cache.set(cache_key, summary)
+
+        return summary
 
     async def _store_in_vector_db(
         self,
