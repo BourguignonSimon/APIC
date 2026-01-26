@@ -37,7 +37,7 @@ def serialize_state_data(data: Any) -> Any:
         return serialize_state_data(data.dict())
     return data
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON
+from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON, text, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -126,7 +126,31 @@ class StateManager:
         # Create tables
         Base.metadata.create_all(self.engine)
 
+        # Run migrations for existing databases
+        self._run_migrations()
+
         logger.info("StateManager initialized")
+
+    def _run_migrations(self) -> None:
+        """Run database migrations for backward compatibility."""
+        inspector = inspect(self.engine)
+
+        # Check if documents table exists
+        if "documents" in inspector.get_table_names():
+            columns = [col["name"] for col in inspector.get_columns("documents")]
+
+            # Add category column if missing
+            if "category" not in columns:
+                logger.info("Running migration: Adding 'category' column to documents table")
+                with self.engine.connect() as conn:
+                    conn.execute(
+                        text("ALTER TABLE documents ADD COLUMN category VARCHAR(50) DEFAULT 'general'")
+                    )
+                    conn.execute(
+                        text("UPDATE documents SET category = 'general' WHERE category IS NULL")
+                    )
+                    conn.commit()
+                logger.info("Migration complete: 'category' column added")
 
     def get_session(self) -> Session:
         """Get a database session."""
