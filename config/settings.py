@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     REPORTS_DIR: str = Field(default="./reports")
 
     # =========================================================================
+    # Interview Scripts Storage
+    # =========================================================================
+    # Directory for storing generated interview scripts per project
+    # Scripts are stored in: SCRIPTS_DIR/{project_id}/interview_script.{format}
+
+    SCRIPTS_DIR: str = Field(default="./scripts")
+
+    # =========================================================================
     # FastAPI Server Configuration
     # =========================================================================
     # Settings for the backend API server

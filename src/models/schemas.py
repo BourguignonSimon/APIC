@@ -288,6 +288,10 @@ class GraphState(BaseModel):
     # Node 3 outputs
     interview_script: Optional[InterviewScript] = None
     script_generation_complete: bool = False
+    interview_script_files: Optional[Dict[str, Optional[str]]] = Field(
+        default=None,
+        description="Paths to generated interview script files (pdf, docx, markdown)"
+    )
 
     # Human breakpoint data
     is_suspended: bool = False
