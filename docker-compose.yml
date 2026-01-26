@@ -11,6 +11,7 @@ services:
       POSTGRES_DB: apic
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql:ro
     ports:
       - "5433:5432"
     healthcheck:
