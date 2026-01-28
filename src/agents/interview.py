@@ -15,6 +15,8 @@ from src.models.schemas import (
     InterviewQuestion,
     InterviewScript,
     GraphState,
+    CustomerContext,
+    DiagnosticLead,
 )
 from src.services.interview_script_generator import get_interview_script_generator
 from config.settings import settings
@@ -70,6 +72,21 @@ class InterviewArchitectAgent(BaseAgent):
             self.log_info("Analyzing hypotheses to identify key themes and priorities")
             analysis = await self._analyze_hypotheses(hypotheses, target_departments)
 
+            # Generate customer context from ingested data
+            self.log_info("Generating customer context from project data")
+            customer_context = await self._generate_customer_context(
+                state,
+                hypotheses,
+                analysis,
+            )
+
+            # Generate diagnostic leads from hypotheses
+            self.log_info("Converting hypotheses to diagnostic leads")
+            diagnostic_leads = await self._generate_diagnostic_leads(
+                hypotheses,
+                analysis,
+            )
+
             # Determine roles to interview based on analysis
             target_roles = await self._determine_target_roles(
                 hypotheses,
@@ -77,8 +94,16 @@ class InterviewArchitectAgent(BaseAgent):
                 analysis,
             )
 
-            # Generate questions for each role based on analysis
+            # Generate validation questions for each role based on analysis
             questions = await self._generate_questions(
+                hypotheses,
+                target_roles,
+                analysis,
+            )
+
+            # Generate discovery questions to find new opportunities
+            self.log_info("Generating discovery questions for new opportunities")
+            discovery_questions = await self._generate_discovery_questions(
                 hypotheses,
                 target_roles,
                 analysis,
@@ -98,19 +123,23 @@ class InterviewArchitectAgent(BaseAgent):
                 analysis,
             )
 
-            # Estimate duration based on question complexity
+            # Estimate duration based on question complexity (including discovery questions)
+            all_questions = questions + discovery_questions
             estimated_duration = await self._estimate_duration(
-                questions,
+                all_questions,
                 analysis,
             )
 
-            # Create the interview script
+            # Create the interview script with customer context and diagnostic form
             interview_script = InterviewScript(
                 project_id=project_id,
                 target_departments=target_departments or self._extract_departments(hypotheses),
                 target_roles=target_roles,
+                customer_context=customer_context,
+                diagnostic_leads=diagnostic_leads,
                 introduction=introduction,
                 questions=questions,
+                discovery_questions=discovery_questions,
                 closing_notes=closing_notes,
                 estimated_duration_minutes=estimated_duration,
                 generated_at=datetime.utcnow(),
@@ -812,3 +841,397 @@ Consider 3-5 minutes per main question, plus time for follow-ups, introduction, 
             area = h.process_area.split()[0] if h.process_area else "Operations"
             departments.add(area)
         return list(departments)
+
+    async def _generate_customer_context(
+        self,
+        state: Dict[str, Any],
+        hypotheses: List[Hypothesis],
+        analysis: Dict[str, Any],
+    ) -> CustomerContext:
+        """
+        Generate customer context from ingested data and analysis.
+
+        Args:
+            state: Current graph state with project and document data
+            hypotheses: List of hypotheses generated from data
+            analysis: Analysis of hypotheses
+
+        Returns:
+            CustomerContext object with customer-specific information
+        """
+        system_prompt = """You are an expert management consultant preparing a customer context summary
+for an interview script. Based on the provided project information and analysis, create a comprehensive
+context summary that will help interviewers understand the customer's situation.
+
+Focus on:
+1. Business overview - what the company does and its industry
+2. Organizational structure relevant to the analysis
+3. Key challenges identified from the data
+4. Main processes that were analyzed
+5. Key stakeholders mentioned in documents
+6. Industry-specific context that may influence recommendations"""
+
+        human_template = """Create a customer context summary based on:
+
+PROJECT INFORMATION:
+- Client Name: {client_name}
+- Project Name: {project_name}
+- Description: {description}
+- Target Departments: {departments}
+
+DOCUMENT SUMMARIES:
+{document_summaries}
+
+KEY THEMES IDENTIFIED:
+{key_themes}
+
+PRIORITY AREAS:
+{priority_areas}
+
+HYPOTHESES CATEGORIES:
+{categories}
+
+Return a JSON object with this structure:
+{{
+    "business_overview": "Overview of the customer's business and industry",
+    "organization_structure": "Summary of relevant organizational structure",
+    "current_challenges": ["challenge1", "challenge2", ...],
+    "key_processes": ["process1", "process2", ...],
+    "stakeholders": ["stakeholder/role1", "stakeholder/role2", ...],
+    "industry_context": "Industry-specific context",
+    "data_sources_summary": "Summary of what data was analyzed"
+}}
+
+Return ONLY the JSON object."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        project = state.get("project", {})
+        if isinstance(project, dict):
+            client_name = project.get("client_name", "Unknown Client")
+            project_name = project.get("project_name", "Unknown Project")
+            description = project.get("description", "No description provided")
+            departments = project.get("target_departments", [])
+        else:
+            client_name = getattr(project, "client_name", "Unknown Client")
+            project_name = getattr(project, "project_name", "Unknown Project")
+            description = getattr(project, "description", "No description provided")
+            departments = getattr(project, "target_departments", [])
+
+        document_summaries = state.get("document_summaries", [])
+        summaries_text = "\n".join(document_summaries[:5]) if document_summaries else "No document summaries available"
+
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        priority_areas = "\n".join([
+            f"- {p.get('area', '')}: {p.get('reason', '')}"
+            for p in analysis.get("priority_areas", [])
+        ])
+        categories = ", ".join(set(h.category for h in hypotheses))
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                client_name=client_name,
+                project_name=project_name,
+                description=description or "Not provided",
+                departments=", ".join(departments) if departments else "Not specified",
+                document_summaries=summaries_text,
+                key_themes=key_themes or "Not yet identified",
+                priority_areas=priority_areas or "Not yet identified",
+                categories=categories or "General process improvement",
+            )
+        )
+
+        try:
+            content = response.content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+
+            context_data = json.loads(content)
+            self.log_info("Customer context generated successfully")
+
+            return CustomerContext(
+                business_overview=context_data.get("business_overview", ""),
+                organization_structure=context_data.get("organization_structure", ""),
+                current_challenges=context_data.get("current_challenges", []),
+                key_processes=context_data.get("key_processes", []),
+                stakeholders=context_data.get("stakeholders", []),
+                industry_context=context_data.get("industry_context", ""),
+                data_sources_summary=context_data.get("data_sources_summary", ""),
+            )
+
+        except Exception as e:
+            self.log_error(f"Failed to parse customer context: {e}")
+            # Return basic context
+            return CustomerContext(
+                business_overview=f"{client_name} - {project_name}",
+                organization_structure="See organizational charts",
+                current_challenges=[h.description for h in hypotheses[:3]],
+                key_processes=[h.process_area for h in hypotheses],
+                stakeholders=departments if isinstance(departments, list) else [],
+                industry_context="Industry context to be determined during interviews",
+                data_sources_summary="Analysis based on uploaded documents",
+            )
+
+    async def _generate_diagnostic_leads(
+        self,
+        hypotheses: List[Hypothesis],
+        analysis: Dict[str, Any],
+    ) -> List[DiagnosticLead]:
+        """
+        Transform hypotheses into diagnostic leads with validation questions.
+
+        Args:
+            hypotheses: List of hypotheses to convert to leads
+            analysis: Analysis of hypotheses
+
+        Returns:
+            List of DiagnosticLead objects for the interview diagnostic form
+        """
+        system_prompt = """You are an expert management consultant creating a diagnostic form
+for interview validation. For each hypothesis/lead, generate:
+1. A clear summary of the suspected inefficiency
+2. Specific questions to validate or invalidate the lead
+3. What evidence would confirm this lead is accurate
+
+Focus on creating actionable validation questions that are:
+- Open-ended to encourage detailed responses
+- Non-leading to avoid bias
+- Specific enough to generate concrete evidence"""
+
+        human_template = """Convert these hypotheses into diagnostic leads:
+
+HYPOTHESES:
+{hypotheses}
+
+KEY THEMES FOR CONTEXT:
+{key_themes}
+
+PRIORITY AREAS:
+{priority_areas}
+
+For each hypothesis, return a JSON array of diagnostic leads:
+[
+    {{
+        "hypothesis_id": "the hypothesis ID",
+        "lead_summary": "Brief summary of the suspected inefficiency",
+        "category": "the category",
+        "confidence": 0.7,
+        "validation_questions": [
+            "Question to validate this lead",
+            "Another validation question"
+        ],
+        "expected_evidence": [
+            "Evidence that would confirm this lead",
+            "Other confirming evidence"
+        ]
+    }}
+]
+
+Return ONLY the JSON array."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        hypotheses_text = "\n".join([
+            f"[{h.id}] Category: {h.category}\n"
+            f"   Process Area: {h.process_area}\n"
+            f"   Description: {h.description}\n"
+            f"   Evidence: {', '.join(h.evidence[:2]) if h.evidence else 'None'}\n"
+            f"   Confidence: {h.confidence}"
+            for h in hypotheses
+        ])
+
+        key_themes = ", ".join(analysis.get("key_themes", []))
+        priority_areas = "\n".join([
+            f"- {p.get('area', '')}: {p.get('reason', '')}"
+            for p in analysis.get("priority_areas", [])
+        ])
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                hypotheses=hypotheses_text,
+                key_themes=key_themes or "Not specified",
+                priority_areas=priority_areas or "Not specified",
+            )
+        )
+
+        try:
+            content = response.content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+
+            leads_data = json.loads(content)
+
+            leads = []
+            for lead_data in leads_data:
+                lead = DiagnosticLead(
+                    hypothesis_id=lead_data.get("hypothesis_id", ""),
+                    lead_summary=lead_data.get("lead_summary", ""),
+                    category=lead_data.get("category", "general"),
+                    confidence=lead_data.get("confidence", 0.5),
+                    validation_questions=lead_data.get("validation_questions", []),
+                    expected_evidence=lead_data.get("expected_evidence", []),
+                )
+                leads.append(lead)
+
+            self.log_info(f"Generated {len(leads)} diagnostic leads")
+            return leads
+
+        except Exception as e:
+            self.log_error(f"Failed to parse diagnostic leads: {e}")
+            # Return basic leads from hypotheses
+            return [
+                DiagnosticLead(
+                    hypothesis_id=h.id,
+                    lead_summary=h.description,
+                    category=h.category,
+                    confidence=h.confidence,
+                    validation_questions=[
+                        f"Can you describe how {h.process_area} currently works?",
+                        f"What challenges do you face with {h.process_area}?",
+                    ],
+                    expected_evidence=h.evidence[:2] if h.evidence else [],
+                )
+                for h in hypotheses
+            ]
+
+    async def _generate_discovery_questions(
+        self,
+        hypotheses: List[Hypothesis],
+        target_roles: List[str],
+        analysis: Dict[str, Any],
+    ) -> List[InterviewQuestion]:
+        """
+        Generate open-ended discovery questions to identify new customer-specific opportunities.
+
+        Args:
+            hypotheses: List of hypotheses for context
+            target_roles: Roles to be interviewed
+            analysis: Analysis of hypotheses
+
+        Returns:
+            List of discovery-focused InterviewQuestion objects
+        """
+        system_prompt = """You are an expert management consultant creating discovery questions
+for identifying NEW improvement opportunities that may not have been captured in the initial
+data analysis. These questions should:
+
+1. Be open-ended and exploratory
+2. Encourage interviewees to share pain points beyond what was analyzed
+3. Uncover hidden inefficiencies and workarounds
+4. Identify opportunities unique to this customer's context
+5. Explore areas the data analysis might have missed
+
+Focus on questions that reveal:
+- Unofficial workarounds and shadow processes
+- Frustrations not documented in formal procedures
+- Opportunities for automation or AI assistance
+- Cross-departmental friction points
+- Time-consuming tasks that could be improved"""
+
+        human_template = """Generate discovery questions for finding NEW opportunities:
+
+ALREADY IDENTIFIED AREAS (from data analysis):
+{identified_areas}
+
+ROLES TO INTERVIEW: {roles}
+
+KEY THEMES ALREADY COVERED:
+{key_themes}
+
+Generate 5-8 discovery questions that explore BEYOND the already identified areas.
+These should uncover new customer-specific opportunities.
+
+Return a JSON array:
+[
+    {{
+        "role": "target role",
+        "question": "the discovery question",
+        "intent": "what new insights we're seeking",
+        "follow_ups": ["follow-up 1", "follow-up 2"]
+    }}
+]
+
+Return ONLY the JSON array."""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", human_template),
+        ])
+
+        identified_areas = "\n".join([
+            f"- {h.process_area}: {h.description[:100]}"
+            for h in hypotheses[:5]
+        ])
+        key_themes = ", ".join(analysis.get("key_themes", []))
+
+        response = await self.llm.ainvoke(
+            prompt.format_messages(
+                identified_areas=identified_areas or "No specific areas identified yet",
+                roles=", ".join(target_roles),
+                key_themes=key_themes or "General process improvement",
+            )
+        )
+
+        try:
+            content = response.content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+
+            questions_data = json.loads(content)
+
+            questions = []
+            for q_data in questions_data:
+                question = InterviewQuestion(
+                    role=q_data.get("role", target_roles[0] if target_roles else "General"),
+                    question=q_data.get("question", ""),
+                    intent=q_data.get("intent", ""),
+                    follow_ups=q_data.get("follow_ups", []),
+                    related_hypothesis_id=None,  # Discovery questions aren't tied to hypotheses
+                    question_type="discovery",
+                )
+                questions.append(question)
+
+            self.log_info(f"Generated {len(questions)} discovery questions")
+            return questions
+
+        except Exception as e:
+            self.log_error(f"Failed to parse discovery questions: {e}")
+            # Return default discovery questions
+            return [
+                InterviewQuestion(
+                    role=target_roles[0] if target_roles else "Manager",
+                    question="What tasks or processes take up more of your time than you think they should?",
+                    intent="Identify unrecognized inefficiencies",
+                    follow_ups=["Why do you think it takes so long?", "What would make it faster?"],
+                    question_type="discovery",
+                ),
+                InterviewQuestion(
+                    role=target_roles[0] if target_roles else "Manager",
+                    question="If you could change one thing about how work gets done here, what would it be?",
+                    intent="Uncover priority improvement areas from employee perspective",
+                    follow_ups=["What's preventing that change?", "Who would benefit most?"],
+                    question_type="discovery",
+                ),
+                InterviewQuestion(
+                    role=target_roles[0] if target_roles else "Manager",
+                    question="Are there any informal workarounds or shortcuts you've developed to get work done?",
+                    intent="Discover shadow processes and unofficial procedures",
+                    follow_ups=["Why did you develop this workaround?", "Do others use it too?"],
+                    question_type="discovery",
+                ),
+            ]
