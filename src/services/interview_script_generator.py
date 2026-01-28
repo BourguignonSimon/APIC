@@ -220,6 +220,52 @@ class InterviewScriptGenerator:
         ))
         content.append(Spacer(1, 12))
 
+        # Customer Context Section
+        customer_context = interview_script.get("customer_context", {})
+        if customer_context:
+            content.append(Paragraph("Customer Context", heading_style))
+
+            if customer_context.get("business_overview"):
+                content.append(Paragraph("<b>Business Overview:</b>", styles['Normal']))
+                content.append(Paragraph(customer_context.get("business_overview", ""), styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            if customer_context.get("organization_structure"):
+                content.append(Paragraph("<b>Organization Structure:</b>", styles['Normal']))
+                content.append(Paragraph(customer_context.get("organization_structure", ""), styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            if customer_context.get("industry_context"):
+                content.append(Paragraph("<b>Industry Context:</b>", styles['Normal']))
+                content.append(Paragraph(customer_context.get("industry_context", ""), styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            current_challenges = customer_context.get("current_challenges", [])
+            if current_challenges:
+                content.append(Paragraph("<b>Current Challenges Identified:</b>", styles['Normal']))
+                for challenge in current_challenges:
+                    content.append(Paragraph(f"  • {challenge}", styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            key_processes = customer_context.get("key_processes", [])
+            if key_processes:
+                content.append(Paragraph("<b>Key Processes Under Review:</b>", styles['Normal']))
+                for process in key_processes:
+                    content.append(Paragraph(f"  • {process}", styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            stakeholders = customer_context.get("stakeholders", [])
+            if stakeholders:
+                content.append(Paragraph("<b>Key Stakeholders:</b>", styles['Normal']))
+                content.append(Paragraph(", ".join(stakeholders), styles['Normal']))
+                content.append(Spacer(1, 6))
+
+            if customer_context.get("data_sources_summary"):
+                content.append(Paragraph("<b>Data Sources Analyzed:</b>", styles['Normal']))
+                content.append(Paragraph(customer_context.get("data_sources_summary", ""), styles['Normal']))
+
+            content.append(Spacer(1, 12))
+
         # Introduction
         content.append(Paragraph("Introduction", heading_style))
         introduction = interview_script.get("introduction", "")
@@ -230,8 +276,68 @@ class InterviewScriptGenerator:
 
         content.append(PageBreak())
 
-        # Questions by Role
-        content.append(Paragraph("Interview Questions", heading_style))
+        # Diagnostic Form - Leads to Validate
+        diagnostic_leads = interview_script.get("diagnostic_leads", [])
+        if diagnostic_leads:
+            content.append(Paragraph("Diagnostic Form: AI-Generated Leads to Validate", heading_style))
+            content.append(Paragraph(
+                "The following leads were identified through AI analysis of the customer's data. "
+                "Use this form to validate or invalidate each lead during interviews.",
+                styles['Normal']
+            ))
+            content.append(Spacer(1, 12))
+
+            lead_num = 1
+            for lead in diagnostic_leads:
+                # Lead header with confidence
+                confidence = lead.get("confidence", 0.5)
+                confidence_pct = int(confidence * 100)
+                content.append(Paragraph(
+                    f"<b>Lead #{lead_num}:</b> {lead.get('lead_summary', '')} "
+                    f"<i>(Confidence: {confidence_pct}%)</i>",
+                    subheading_style
+                ))
+
+                # Category
+                content.append(Paragraph(
+                    f"Category: {lead.get('category', 'General')}",
+                    intent_style
+                ))
+
+                # Validation questions
+                validation_questions = lead.get("validation_questions", [])
+                if validation_questions:
+                    content.append(Paragraph("Validation Questions:", styles['Normal']))
+                    for vq in validation_questions:
+                        content.append(Paragraph(f"    □ {vq}", question_style))
+
+                # Expected evidence
+                expected_evidence = lead.get("expected_evidence", [])
+                if expected_evidence:
+                    content.append(Spacer(1, 6))
+                    content.append(Paragraph("Expected Evidence (if lead is valid):", intent_style))
+                    for ev in expected_evidence:
+                        content.append(Paragraph(f"    • {ev}", intent_style))
+
+                # Validation checkbox
+                content.append(Spacer(1, 6))
+                content.append(Paragraph(
+                    "Validation Result:  □ Confirmed  □ Partially Confirmed  □ Not Confirmed  □ Needs More Info",
+                    styles['Normal']
+                ))
+                content.append(Paragraph("Notes: _" * 40, styles['Normal']))
+                content.append(Spacer(1, 12))
+                lead_num += 1
+
+            content.append(PageBreak())
+
+        # Questions by Role - Validation Questions
+        content.append(Paragraph("Part A: Validation Questions", heading_style))
+        content.append(Paragraph(
+            "These questions are designed to validate or invalidate the AI-generated leads above.",
+            styles['Normal']
+        ))
+        content.append(Spacer(1, 12))
 
         questions = interview_script.get("questions", [])
 
@@ -273,6 +379,52 @@ class InterviewScriptGenerator:
                 question_num += 1
 
             content.append(Spacer(1, 12))
+
+        # Part B: Discovery Questions
+        discovery_questions = interview_script.get("discovery_questions", [])
+        if discovery_questions:
+            content.append(PageBreak())
+            content.append(Paragraph("Part B: Discovery Questions", heading_style))
+            content.append(Paragraph(
+                "These open-ended questions are designed to identify NEW improvement opportunities "
+                "specific to this customer that may not have been captured in the data analysis.",
+                styles['Normal']
+            ))
+            content.append(Spacer(1, 12))
+
+            # Group discovery questions by role
+            disc_by_role: Dict[str, List] = {}
+            for q in discovery_questions:
+                role = q.get("role", "General")
+                if role not in disc_by_role:
+                    disc_by_role[role] = []
+                disc_by_role[role].append(q)
+
+            disc_num = 1
+            for role, role_questions in disc_by_role.items():
+                content.append(Paragraph(f"Discovery Questions for: {role}", subheading_style))
+
+                for q in role_questions:
+                    content.append(Paragraph(
+                        f"<b>D{disc_num}:</b> {q.get('question', '')}",
+                        question_style
+                    ))
+
+                    intent = q.get("intent", "")
+                    if intent:
+                        content.append(Paragraph(
+                            f"<i>Intent: {intent}</i>",
+                            intent_style
+                        ))
+
+                    follow_ups = q.get("follow_ups", [])
+                    if follow_ups:
+                        content.append(Paragraph("Follow-up questions:", intent_style))
+                        for fu in follow_ups:
+                            content.append(Paragraph(f"    - {fu}", intent_style))
+
+                    content.append(Spacer(1, 12))
+                    disc_num += 1
 
         # Closing Notes
         content.append(PageBreak())
@@ -372,6 +524,51 @@ class InterviewScriptGenerator:
             "uncovering inefficiencies, workarounds, and areas where automation could provide value."
         )
 
+        # Customer Context Section
+        customer_context = interview_script.get("customer_context", {})
+        if customer_context:
+            doc.add_heading("Customer Context", level=1)
+
+            if customer_context.get("business_overview"):
+                p = doc.add_paragraph()
+                p.add_run("Business Overview: ").bold = True
+                p.add_run(customer_context.get("business_overview", ""))
+
+            if customer_context.get("organization_structure"):
+                p = doc.add_paragraph()
+                p.add_run("Organization Structure: ").bold = True
+                p.add_run(customer_context.get("organization_structure", ""))
+
+            if customer_context.get("industry_context"):
+                p = doc.add_paragraph()
+                p.add_run("Industry Context: ").bold = True
+                p.add_run(customer_context.get("industry_context", ""))
+
+            current_challenges = customer_context.get("current_challenges", [])
+            if current_challenges:
+                p = doc.add_paragraph()
+                p.add_run("Current Challenges Identified:").bold = True
+                for challenge in current_challenges:
+                    doc.add_paragraph(challenge, style='List Bullet')
+
+            key_processes = customer_context.get("key_processes", [])
+            if key_processes:
+                p = doc.add_paragraph()
+                p.add_run("Key Processes Under Review:").bold = True
+                for process in key_processes:
+                    doc.add_paragraph(process, style='List Bullet')
+
+            stakeholders = customer_context.get("stakeholders", [])
+            if stakeholders:
+                p = doc.add_paragraph()
+                p.add_run("Key Stakeholders: ").bold = True
+                p.add_run(", ".join(stakeholders))
+
+            if customer_context.get("data_sources_summary"):
+                p = doc.add_paragraph()
+                p.add_run("Data Sources Analyzed: ").bold = True
+                p.add_run(customer_context.get("data_sources_summary", ""))
+
         # Introduction
         doc.add_heading("Introduction", level=1)
         introduction = interview_script.get("introduction", "")
@@ -379,9 +576,55 @@ class InterviewScriptGenerator:
             if para.strip():
                 doc.add_paragraph(para.strip())
 
-        # Questions
+        # Diagnostic Form - Leads to Validate
+        diagnostic_leads = interview_script.get("diagnostic_leads", [])
+        if diagnostic_leads:
+            doc.add_page_break()
+            doc.add_heading("Diagnostic Form: AI-Generated Leads to Validate", level=1)
+            doc.add_paragraph(
+                "The following leads were identified through AI analysis of the customer's data. "
+                "Use this form to validate or invalidate each lead during interviews."
+            )
+
+            lead_num = 1
+            for lead in diagnostic_leads:
+                confidence = lead.get("confidence", 0.5)
+                confidence_pct = int(confidence * 100)
+
+                doc.add_heading(f"Lead #{lead_num}: {lead.get('lead_summary', '')[:80]}...", level=2)
+
+                p = doc.add_paragraph()
+                p.add_run(f"Confidence: {confidence_pct}% | Category: {lead.get('category', 'General')}")
+                p.runs[0].italic = True
+
+                validation_questions = lead.get("validation_questions", [])
+                if validation_questions:
+                    p = doc.add_paragraph()
+                    p.add_run("Validation Questions:").bold = True
+                    for vq in validation_questions:
+                        doc.add_paragraph(f"□ {vq}", style='List Bullet')
+
+                expected_evidence = lead.get("expected_evidence", [])
+                if expected_evidence:
+                    p = doc.add_paragraph()
+                    p.add_run("Expected Evidence (if lead is valid):").bold = True
+                    for ev in expected_evidence:
+                        doc.add_paragraph(ev, style='List Bullet')
+
+                p = doc.add_paragraph()
+                p.add_run("Validation Result: ").bold = True
+                p.add_run("□ Confirmed  □ Partially Confirmed  □ Not Confirmed  □ Needs More Info")
+
+                doc.add_paragraph("Notes: " + "_" * 60)
+                doc.add_paragraph()
+                lead_num += 1
+
+        # Questions - Part A: Validation Questions
         doc.add_page_break()
-        doc.add_heading("Interview Questions", level=1)
+        doc.add_heading("Part A: Validation Questions", level=1)
+        doc.add_paragraph(
+            "These questions are designed to validate or invalidate the AI-generated leads above."
+        )
 
         questions = interview_script.get("questions", [])
 
@@ -422,6 +665,51 @@ class InterviewScriptGenerator:
 
                 doc.add_paragraph()
                 question_num += 1
+
+        # Part B: Discovery Questions
+        discovery_questions = interview_script.get("discovery_questions", [])
+        if discovery_questions:
+            doc.add_page_break()
+            doc.add_heading("Part B: Discovery Questions", level=1)
+            doc.add_paragraph(
+                "These open-ended questions are designed to identify NEW improvement opportunities "
+                "specific to this customer that may not have been captured in the data analysis."
+            )
+
+            # Group discovery questions by role
+            disc_by_role: Dict[str, List] = {}
+            for q in discovery_questions:
+                role = q.get("role", "General")
+                if role not in disc_by_role:
+                    disc_by_role[role] = []
+                disc_by_role[role].append(q)
+
+            disc_num = 1
+            for role, role_questions in disc_by_role.items():
+                doc.add_heading(f"Discovery Questions for: {role}", level=2)
+
+                for q in role_questions:
+                    p = doc.add_paragraph()
+                    p.add_run(f"D{disc_num}: ").bold = True
+                    p.add_run(q.get("question", ""))
+
+                    intent = q.get("intent", "")
+                    if intent:
+                        intent_p = doc.add_paragraph()
+                        intent_run = intent_p.add_run(f"Intent: {intent}")
+                        intent_run.italic = True
+                        intent_run.font.size = Pt(10)
+
+                    follow_ups = q.get("follow_ups", [])
+                    if follow_ups:
+                        fu_p = doc.add_paragraph("Follow-up questions:")
+                        fu_p.runs[0].font.size = Pt(10)
+                        for fu in follow_ups:
+                            fu_item = doc.add_paragraph(fu, style='List Bullet')
+                            fu_item.paragraph_format.left_indent = Inches(0.5)
+
+                    doc.add_paragraph()
+                    disc_num += 1
 
         # Closing Notes
         doc.add_page_break()
@@ -514,6 +802,51 @@ class InterviewScriptGenerator:
                     "uncovering inefficiencies, workarounds, and areas where automation could provide value.")
         lines.append("")
 
+        # Customer Context Section
+        customer_context = interview_script.get("customer_context", {})
+        if customer_context:
+            lines.append("## Customer Context")
+            lines.append("")
+
+            if customer_context.get("business_overview"):
+                lines.append("**Business Overview:**")
+                lines.append(customer_context.get("business_overview", ""))
+                lines.append("")
+
+            if customer_context.get("organization_structure"):
+                lines.append("**Organization Structure:**")
+                lines.append(customer_context.get("organization_structure", ""))
+                lines.append("")
+
+            if customer_context.get("industry_context"):
+                lines.append("**Industry Context:**")
+                lines.append(customer_context.get("industry_context", ""))
+                lines.append("")
+
+            current_challenges = customer_context.get("current_challenges", [])
+            if current_challenges:
+                lines.append("**Current Challenges Identified:**")
+                for challenge in current_challenges:
+                    lines.append(f"- {challenge}")
+                lines.append("")
+
+            key_processes = customer_context.get("key_processes", [])
+            if key_processes:
+                lines.append("**Key Processes Under Review:**")
+                for process in key_processes:
+                    lines.append(f"- {process}")
+                lines.append("")
+
+            stakeholders = customer_context.get("stakeholders", [])
+            if stakeholders:
+                lines.append(f"**Key Stakeholders:** {', '.join(stakeholders)}")
+                lines.append("")
+
+            if customer_context.get("data_sources_summary"):
+                lines.append("**Data Sources Analyzed:**")
+                lines.append(customer_context.get("data_sources_summary", ""))
+                lines.append("")
+
         # Introduction
         lines.append("## Introduction")
         lines.append("")
@@ -521,10 +854,59 @@ class InterviewScriptGenerator:
         lines.append(introduction)
         lines.append("")
 
-        # Questions
+        # Diagnostic Form - Leads to Validate
+        diagnostic_leads = interview_script.get("diagnostic_leads", [])
+        if diagnostic_leads:
+            lines.append("---")
+            lines.append("")
+            lines.append("## Diagnostic Form: AI-Generated Leads to Validate")
+            lines.append("")
+            lines.append("The following leads were identified through AI analysis of the customer's data. "
+                        "Use this form to validate or invalidate each lead during interviews.")
+            lines.append("")
+
+            lead_num = 1
+            for lead in diagnostic_leads:
+                confidence = lead.get("confidence", 0.5)
+                confidence_pct = int(confidence * 100)
+
+                lines.append(f"### Lead #{lead_num}: {lead.get('lead_summary', '')}")
+                lines.append("")
+                lines.append(f"*Confidence: {confidence_pct}% | Category: {lead.get('category', 'General')}*")
+                lines.append("")
+
+                validation_questions = lead.get("validation_questions", [])
+                if validation_questions:
+                    lines.append("**Validation Questions:**")
+                    for vq in validation_questions:
+                        lines.append(f"- [ ] {vq}")
+                    lines.append("")
+
+                expected_evidence = lead.get("expected_evidence", [])
+                if expected_evidence:
+                    lines.append("**Expected Evidence (if lead is valid):**")
+                    for ev in expected_evidence:
+                        lines.append(f"- {ev}")
+                    lines.append("")
+
+                lines.append("**Validation Result:**")
+                lines.append("- [ ] Confirmed")
+                lines.append("- [ ] Partially Confirmed")
+                lines.append("- [ ] Not Confirmed")
+                lines.append("- [ ] Needs More Info")
+                lines.append("")
+                lines.append("**Notes:** _______________________________________________")
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+                lead_num += 1
+
+        # Part A: Validation Questions
         lines.append("---")
         lines.append("")
-        lines.append("## Interview Questions")
+        lines.append("## Part A: Validation Questions")
+        lines.append("")
+        lines.append("These questions are designed to validate or invalidate the AI-generated leads above.")
         lines.append("")
 
         questions = interview_script.get("questions", [])
@@ -564,6 +946,48 @@ class InterviewScriptGenerator:
                 lines.append("---")
                 lines.append("")
                 question_num += 1
+
+        # Part B: Discovery Questions
+        discovery_questions = interview_script.get("discovery_questions", [])
+        if discovery_questions:
+            lines.append("## Part B: Discovery Questions")
+            lines.append("")
+            lines.append("These open-ended questions are designed to identify NEW improvement opportunities "
+                        "specific to this customer that may not have been captured in the data analysis.")
+            lines.append("")
+
+            # Group discovery questions by role
+            disc_by_role: Dict[str, List] = {}
+            for q in discovery_questions:
+                role = q.get("role", "General")
+                if role not in disc_by_role:
+                    disc_by_role[role] = []
+                disc_by_role[role].append(q)
+
+            disc_num = 1
+            for role, role_questions in disc_by_role.items():
+                lines.append(f"### Discovery Questions for: {role}")
+                lines.append("")
+
+                for q in role_questions:
+                    lines.append(f"**D{disc_num}: {q.get('question', '')}**")
+                    lines.append("")
+
+                    intent = q.get("intent", "")
+                    if intent:
+                        lines.append(f"*Intent: {intent}*")
+                        lines.append("")
+
+                    follow_ups = q.get("follow_ups", [])
+                    if follow_ups:
+                        lines.append("Follow-up questions:")
+                        for fu in follow_ups:
+                            lines.append(f"- {fu}")
+                        lines.append("")
+
+                    lines.append("---")
+                    lines.append("")
+                    disc_num += 1
 
         # Closing Notes
         lines.append("## Closing Notes")

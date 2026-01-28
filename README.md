@@ -181,6 +181,11 @@ Use the generated interview script to:
 - Capture actual processes and pain points
 - Document workarounds and hidden processes
 
+**Interview Script Export Formats:**
+- PDF - Professional printable format
+- DOCX - Editable Word document with note-taking space
+- Markdown - Simple text format for easy sharing
+
 ### 5. Submit Transcript
 
 Paste the interview transcript to resume analysis:
@@ -270,6 +275,9 @@ For detailed configuration options, see [Agent Configuration Guide](docs/AGENT_C
 - `POST /api/v1/workflow/resume` - Resume with transcript
 - `GET /api/v1/workflow/{id}/status` - Get workflow status
 - `GET /api/v1/workflow/{id}/interview-script` - Get interview script
+- `GET /api/v1/workflow/{id}/interview-script/files` - List interview script files
+- `GET /api/v1/workflow/{id}/interview-script/export/{format}` - Download script (pdf/docx/markdown)
+- `POST /api/v1/workflow/{id}/interview-script/regenerate` - Regenerate script files
 - `GET /api/v1/workflow/{id}/report` - Get final report
 
 ## Project Structure
@@ -301,8 +309,9 @@ apic/
 │   │   └── schemas.py        # Pydantic models
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── workflow.py       # LangGraph orchestration
-│   │   └── state_manager.py  # State persistence
+│   │   ├── workflow.py                   # LangGraph orchestration
+│   │   ├── state_manager.py              # State persistence
+│   │   └── interview_script_generator.py # PDF/DOCX/MD script export
 │   └── utils/
 │       ├── __init__.py
 │       ├── helpers.py        # Utility functions
@@ -1886,13 +1895,18 @@ async def test_workflow_progression_through_nodes(self, graph, initial_state):
         # Mock Node 3: Interview (reaches breakpoint)
         mock_interview.return_value.process = AsyncMock(return_value={
             **state_dict,
-            "interview_script_ready": True,
+            "script_generation_complete": True,
             "is_suspended": True,
             "interview_script": {"questions": []},
         })
 
         # Run workflow
-        result = await graph.run_to_breakpoint(initial_state.project_id)
+        result = await graph.run_to_interview(
+            initial_state.project_id,
+            initial_state.project,
+            [],
+            str(uuid.uuid4())
+        )
 
         # Assert progression
         assert result["ingestion_complete"] is True
@@ -2037,7 +2051,12 @@ async def test_workflow_handles_errors_gracefully(self, graph, initial_state):
         mock_sm.load_state = AsyncMock(side_effect=Exception("Database error"))
 
         try:
-            result = await graph.run_to_breakpoint(initial_state.project_id)
+            result = await graph.run_to_interview(
+                initial_state.project_id,
+                {"id": initial_state.project_id},
+                [],
+                str(uuid.uuid4())
+            )
             # Should handle error gracefully
             assert "errors" in result
         except Exception as e:

@@ -134,6 +134,54 @@ class Hypothesis(BaseModel):
 # Node 3: Interview Architect Models
 # ============================================================================
 
+class CustomerContext(BaseModel):
+    """Customer context derived from ingested data analysis."""
+    business_overview: str = Field(
+        default="",
+        description="Overview of the customer's business and industry"
+    )
+    organization_structure: str = Field(
+        default="",
+        description="Summary of relevant organizational structure"
+    )
+    current_challenges: List[str] = Field(
+        default_factory=list,
+        description="Key challenges identified from data analysis"
+    )
+    key_processes: List[str] = Field(
+        default_factory=list,
+        description="Main processes identified for review"
+    )
+    stakeholders: List[str] = Field(
+        default_factory=list,
+        description="Key stakeholders identified from documents"
+    )
+    industry_context: str = Field(
+        default="",
+        description="Industry-specific context and considerations"
+    )
+    data_sources_summary: str = Field(
+        default="",
+        description="Summary of analyzed data sources"
+    )
+
+
+class DiagnosticLead(BaseModel):
+    """A lead/hypothesis to be validated during the interview."""
+    hypothesis_id: str = Field(..., description="Reference to the hypothesis being validated")
+    lead_summary: str = Field(..., description="Brief summary of the suspected inefficiency")
+    category: str = Field(..., description="Category: manual_process, communication_gap, etc.")
+    confidence: float = Field(default=0.5, description="AI confidence score (0-1)")
+    validation_questions: List[str] = Field(
+        default_factory=list,
+        description="Questions to validate or invalidate this lead"
+    )
+    expected_evidence: List[str] = Field(
+        default_factory=list,
+        description="What evidence would confirm this lead"
+    )
+
+
 class InterviewQuestion(BaseModel):
     """Model for a single interview question."""
     role: str = Field(..., description="Target interviewee role (e.g., CFO, Operations Manager)")
@@ -147,6 +195,10 @@ class InterviewQuestion(BaseModel):
         None,
         description="Link to the hypothesis this question validates"
     )
+    question_type: str = Field(
+        default="validation",
+        description="Type: validation (review leads) or discovery (find new opportunities)"
+    )
 
 
 class InterviewScript(BaseModel):
@@ -157,11 +209,26 @@ class InterviewScript(BaseModel):
         default_factory=list,
         description="Recommended roles to interview"
     )
+    # Customer Context Section
+    customer_context: Optional[CustomerContext] = Field(
+        default=None,
+        description="Customer context derived from data analysis"
+    )
+    # Diagnostic Form - Leads to validate
+    diagnostic_leads: List[DiagnosticLead] = Field(
+        default_factory=list,
+        description="AI-generated leads/hypotheses to validate during interview"
+    )
     introduction: str = Field(
         default="",
         description="Opening statement for the interview"
     )
     questions: List[InterviewQuestion]
+    # Discovery questions for new opportunities
+    discovery_questions: List[InterviewQuestion] = Field(
+        default_factory=list,
+        description="Open-ended questions to identify new customer-specific opportunities"
+    )
     closing_notes: str = Field(
         default="",
         description="Closing remarks and next steps"
