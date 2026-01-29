@@ -1393,9 +1393,83 @@ def render_analysis_tab(project_id: str):
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
 
-    # Show hypotheses if available
+    # Show hypotheses and interview document download if available
     status_response = api_request("GET", f"/workflow/{project_id}/status", show_error=False)
     if status_response and status_response.get("current_node") not in ["not_started", None]:
+        # Interview Document Download Section
+        st.markdown("### AI-Generated Interview Document")
+        st.markdown("The AI agent has analyzed your documents and generated a comprehensive interview script. Download it in your preferred format.")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/pdf",
+                    timeout=30
+                )
+                if response.ok:
+                    st.download_button(
+                        label="📄 Download PDF",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="analysis_download_pdf"
+                    )
+                else:
+                    st.button("📄 PDF Not Available", disabled=True, use_container_width=True, key="analysis_pdf_disabled")
+            except Exception:
+                st.button("📄 PDF Error", disabled=True, use_container_width=True, key="analysis_pdf_error")
+
+        with col2:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/docx",
+                    timeout=30
+                )
+                if response.ok:
+                    st.download_button(
+                        label="📝 Download Word",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        key="analysis_download_docx"
+                    )
+                else:
+                    st.button("📝 Word Not Available", disabled=True, use_container_width=True, key="analysis_docx_disabled")
+            except Exception:
+                st.button("📝 Word Error", disabled=True, use_container_width=True, key="analysis_docx_error")
+
+        with col3:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/markdown",
+                    timeout=30
+                )
+                if response.ok:
+                    st.download_button(
+                        label="📋 Download Markdown",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                        key="analysis_download_md"
+                    )
+                else:
+                    st.button("📋 Markdown Not Available", disabled=True, use_container_width=True, key="analysis_md_disabled")
+            except Exception:
+                st.button("📋 Markdown Error", disabled=True, use_container_width=True, key="analysis_md_error")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_info_message("The interview document contains targeted questions based on identified hypotheses. Use it to conduct stakeholder interviews.")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.divider()
+
+        # Generated Hypotheses Section
         hypo_response = api_request("GET", f"/workflow/{project_id}/hypotheses", show_error=False)
         if hypo_response and hypo_response.get("hypotheses"):
             st.markdown("### Generated Hypotheses")
@@ -1416,102 +1490,272 @@ def render_analysis_tab(project_id: str):
                             st.markdown(f"• {e}")
 
 
+def get_default_interview_script():
+    """Return a default interview script with general process improvement questions."""
+    return {
+        "target_roles": ["Process Owner", "Team Lead", "End User", "Manager"],
+        "target_departments": ["Operations", "General"],
+        "estimated_duration_minutes": 45,
+        "introduction": """Thank you for taking the time to participate in this process improvement interview.
+
+The purpose of this conversation is to understand how current processes work in practice, identify any challenges or inefficiencies you may encounter, and gather your insights on potential improvements.
+
+Your feedback is valuable and will help us identify opportunities to streamline operations, reduce manual work, and improve overall efficiency. There are no right or wrong answers - we're interested in your honest perspective and experience.
+
+Please feel free to share specific examples where possible, as they help us better understand the context and impact of the issues you describe.""",
+        "questions": [
+            {
+                "question": "Can you walk me through a typical day in your role? What are the main tasks you perform?",
+                "role": "General",
+                "intent": "Understand daily workflows and key responsibilities",
+                "follow_ups": [
+                    "Which tasks take the most time?",
+                    "Are there any tasks that feel repetitive or could be automated?",
+                    "How do these tasks connect to other team members' work?"
+                ]
+            },
+            {
+                "question": "What processes or workflows do you follow most frequently? Are these documented somewhere?",
+                "role": "Process Owner",
+                "intent": "Identify key processes and documentation gaps",
+                "follow_ups": [
+                    "How closely do you follow the documented procedures?",
+                    "Are there any informal processes that aren't documented?",
+                    "When was the last time these procedures were updated?"
+                ]
+            },
+            {
+                "question": "What are the biggest challenges or pain points you experience in your daily work?",
+                "role": "End User",
+                "intent": "Identify inefficiencies and frustration points",
+                "follow_ups": [
+                    "How often does this issue occur?",
+                    "What is the impact when this happens?",
+                    "Have you found any workarounds?"
+                ]
+            },
+            {
+                "question": "Are there any manual, repetitive tasks that you think could be automated or simplified?",
+                "role": "General",
+                "intent": "Discover automation opportunities",
+                "follow_ups": [
+                    "How much time do you spend on these tasks weekly?",
+                    "What tools or systems are involved?",
+                    "What would an ideal solution look like?"
+                ]
+            },
+            {
+                "question": "How do you communicate and collaborate with other teams or departments?",
+                "role": "Team Lead",
+                "intent": "Understand cross-functional interactions and handoffs",
+                "follow_ups": [
+                    "Are there any communication bottlenecks?",
+                    "How is information typically shared?",
+                    "What happens when there's a miscommunication?"
+                ]
+            },
+            {
+                "question": "What tools and systems do you use to complete your work? How well do they integrate with each other?",
+                "role": "General",
+                "intent": "Assess technology landscape and integration gaps",
+                "follow_ups": [
+                    "Do you ever have to enter the same data in multiple systems?",
+                    "Are there any tools you wish you had?",
+                    "What are the limitations of your current tools?"
+                ]
+            },
+            {
+                "question": "How do you handle exceptions or situations that fall outside the normal process?",
+                "role": "Process Owner",
+                "intent": "Identify edge cases and process flexibility",
+                "follow_ups": [
+                    "How often do exceptions occur?",
+                    "Who has authority to approve exceptions?",
+                    "How are exceptions documented or tracked?"
+                ]
+            },
+            {
+                "question": "How do you measure success in your role? What metrics or KPIs are you evaluated on?",
+                "role": "Manager",
+                "intent": "Understand performance measurement and alignment",
+                "follow_ups": [
+                    "How is performance data collected?",
+                    "Are there any metrics you think should be tracked but aren't?",
+                    "How often is performance reviewed?"
+                ]
+            },
+            {
+                "question": "If you could change one thing about how work gets done here, what would it be?",
+                "role": "General",
+                "intent": "Capture improvement ideas and priorities",
+                "follow_ups": [
+                    "What would be the impact of this change?",
+                    "What obstacles might prevent this change?",
+                    "Who would need to be involved to make it happen?"
+                ]
+            },
+            {
+                "question": "Have there been any recent changes to processes or systems? How did they go?",
+                "role": "Team Lead",
+                "intent": "Assess change management and adoption patterns",
+                "follow_ups": [
+                    "What worked well during the transition?",
+                    "What could have been done better?",
+                    "How was training handled?"
+                ]
+            }
+        ],
+        "discovery_questions": [
+            {
+                "question": "What do you think your customers (internal or external) value most about what you deliver?",
+                "role": "General",
+                "intent": "Understand customer value and priorities",
+                "follow_ups": []
+            },
+            {
+                "question": "Are there any compliance or regulatory requirements that affect how you work?",
+                "role": "Manager",
+                "intent": "Identify compliance constraints",
+                "follow_ups": []
+            },
+            {
+                "question": "Is there anything else you'd like to share that we haven't covered?",
+                "role": "General",
+                "intent": "Capture any additional insights",
+                "follow_ups": []
+            }
+        ],
+        "closing_notes": """Thank you for your time and valuable insights today. Your input will be instrumental in identifying opportunities for process improvement.
+
+**Next Steps:**
+- We will analyze the information gathered from all interviews
+- Findings will be compiled into a comprehensive report
+- Recommendations will be prioritized based on impact and feasibility
+- You may be contacted for follow-up questions or clarification
+
+If you think of anything else after our conversation, please don't hesitate to reach out. We appreciate your participation in this process improvement initiative.""",
+        "customer_context": None,
+        "diagnostic_leads": []
+    }
+
+
 def render_interview_tab(project_id: str):
     """Render the interview script tab."""
 
     script_response = api_request("GET", f"/workflow/{project_id}/interview-script", show_error=False)
 
-    if not script_response or not script_response.get("interview_script"):
-        render_empty_state(
-            "🎤",
-            "Interview Script Not Ready",
-            "Complete the document analysis first to generate the interview script. Go to the Analysis tab to start."
-        )
-        return
+    # Check if we have an AI-generated script or should use the default
+    has_ai_script = script_response and script_response.get("interview_script")
 
-    script = script_response["interview_script"]
+    if has_ai_script:
+        script = script_response["interview_script"]
+        script_type = "ai_generated"
+    else:
+        script = get_default_interview_script()
+        script_type = "default"
 
     # Header Section
     st.markdown("### Interview Script")
-    st.markdown("Use this script to conduct stakeholder interviews. Download in your preferred format for offline use.")
+
+    # Show appropriate message based on script type
+    if script_type == "default":
+        render_info_message(
+            "This is a default interview script with general process improvement questions. "
+            "Run the document analysis in the Analysis tab to generate a customized AI-powered interview script "
+            "tailored to your specific documents and identified hypotheses."
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("Use this script as a starting point for stakeholder interviews.")
+    else:
+        render_success_message(
+            "AI-Generated Script: This interview script has been customized based on the analysis "
+            "of your uploaded documents and identified improvement opportunities."
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("Use this script to conduct stakeholder interviews. Download in your preferred format for offline use.")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Script Overview
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("⏱️ Estimated Duration", f"{script.get('estimated_duration_minutes', 60)} min")
+        st.metric("Estimated Duration", f"{script.get('estimated_duration_minutes', 60)} min")
     with col2:
         roles = script.get('target_roles', [])
-        st.metric("👥 Target Roles", len(roles))
+        st.metric("Target Roles", len(roles))
     with col3:
         questions = script.get('questions', [])
-        st.metric("❓ Questions", len(questions))
+        st.metric("Questions", len(questions))
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Download Section
-    st.markdown("#### 📥 Download Script")
-    col1, col2, col3 = st.columns(3)
+    # Download Section - Only show for AI-generated scripts
+    if script_type == "ai_generated":
+        st.markdown("#### Download Script")
+        col1, col2, col3 = st.columns(3)
 
-    with col1:
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/pdf",
-                timeout=30
-            )
-            if response.ok:
-                st.download_button(
-                    label="📄 Download PDF",
-                    data=response.content,
-                    file_name=f"interview_script_{project_id}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
+        with col1:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/pdf",
+                    timeout=30
                 )
-            else:
-                st.button("📄 PDF Not Available", disabled=True, use_container_width=True)
-        except Exception:
-            st.button("📄 PDF Error", disabled=True, use_container_width=True)
+                if response.ok:
+                    st.download_button(
+                        label="Download PDF",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="interview_download_pdf"
+                    )
+                else:
+                    st.button("PDF Not Available", disabled=True, use_container_width=True, key="interview_pdf_disabled")
+            except Exception:
+                st.button("PDF Error", disabled=True, use_container_width=True, key="interview_pdf_error")
 
-    with col2:
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/docx",
-                timeout=30
-            )
-            if response.ok:
-                st.download_button(
-                    label="📝 Download Word",
-                    data=response.content,
-                    file_name=f"interview_script_{project_id}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
+        with col2:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/docx",
+                    timeout=30
                 )
-            else:
-                st.button("📝 Word Not Available", disabled=True, use_container_width=True)
-        except Exception:
-            st.button("📝 Word Error", disabled=True, use_container_width=True)
+                if response.ok:
+                    st.download_button(
+                        label="Download Word",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        key="interview_download_docx"
+                    )
+                else:
+                    st.button("Word Not Available", disabled=True, use_container_width=True, key="interview_docx_disabled")
+            except Exception:
+                st.button("Word Error", disabled=True, use_container_width=True, key="interview_docx_error")
 
-    with col3:
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/markdown",
-                timeout=30
-            )
-            if response.ok:
-                st.download_button(
-                    label="📋 Download Markdown",
-                    data=response.content,
-                    file_name=f"interview_script_{project_id}.md",
-                    mime="text/markdown",
-                    use_container_width=True
+        with col3:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/markdown",
+                    timeout=30
                 )
-            else:
-                st.button("📋 Markdown Not Available", disabled=True, use_container_width=True)
-        except Exception:
-            st.button("📋 Markdown Error", disabled=True, use_container_width=True)
+                if response.ok:
+                    st.download_button(
+                        label="Download Markdown",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                        key="interview_download_md"
+                    )
+                else:
+                    st.button("Markdown Not Available", disabled=True, use_container_width=True, key="interview_md_disabled")
+            except Exception:
+                st.button("Markdown Error", disabled=True, use_container_width=True, key="interview_md_error")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
     st.divider()
 
     # Script Content
@@ -1550,10 +1794,29 @@ def render_interview_tab(project_id: str):
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Discovery Questions (if available)
+    discovery_questions = script.get("discovery_questions", [])
+    if discovery_questions:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("##### Discovery Questions")
+        st.markdown("*Additional open-ended questions to uncover new insights:*")
+
+        for i, q in enumerate(discovery_questions, 1):
+            role = q.get('role', 'General')
+
+            st.markdown(f"""
+            <div class="question-card" style="border-left-color: #10b981;">
+                <div class="question-number" style="color: #10b981;">Discovery {i}</div>
+                <div class="question-role">{role}</div>
+                <div class="question-text">{q.get('question', 'No question')}</div>
+                <div class="question-intent">💡 Intent: {q.get('intent', 'Gather information')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
     # Closing Notes
     if script.get("closing_notes"):
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("📝 Closing Notes"):
+        with st.expander("Closing Notes", expanded=False):
             st.markdown(script["closing_notes"])
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1562,6 +1825,15 @@ def render_interview_tab(project_id: str):
     # Transcript Submission
     st.markdown("### Submit Interview Transcript")
     st.markdown("After conducting the interview, paste the transcript or notes below to generate recommendations.")
+
+    # Show warning if using default script
+    if script_type == "default":
+        render_warning_message(
+            "Note: You are using the default interview script. For best results, run document analysis first "
+            "to generate a customized script. You can still submit a transcript, but recommendations will be "
+            "based on general process improvement patterns rather than your specific documents."
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
 
     transcript = st.text_area(
         "Interview Transcript",
