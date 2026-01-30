@@ -15,7 +15,6 @@ from src.models.schemas import (
     Hypothesis,
     GapAnalysisItem,
     TaskCategory,
-    Severity,
     GraphState,
 )
 from config.settings import settings

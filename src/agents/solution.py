@@ -15,8 +15,7 @@ from src.models.schemas import (
     AnalysisResult,
     SolutionRecommendation,
     TaskCategory,
-    Severity,
-    Complexity,
+    Priority,
     GraphState,
 )
 from config.settings import settings
@@ -223,32 +222,30 @@ class SolutionArchitectAgent(BaseAgent):
 
             solutions = []
             for s_data in solutions_data:
-                # Map severity string to enum
-                severity_str = s_data.get("pain_point_severity", "Medium")
-                severity = Severity.MEDIUM
-                if severity_str == "Low":
-                    severity = Severity.LOW
-                elif severity_str == "High":
-                    severity = Severity.HIGH
-                elif severity_str == "Critical":
-                    severity = Severity.CRITICAL
+                # Map pain point priority string to enum
+                pain_priority_str = s_data.get("pain_point_priority", "Medium")
+                pain_priority = Priority.MEDIUM
+                if pain_priority_str == "Low":
+                    pain_priority = Priority.LOW
+                elif pain_priority_str == "High":
+                    pain_priority = Priority.HIGH
 
-                # Map complexity string to enum
-                complexity_str = s_data.get("implementation_complexity", "Medium")
-                complexity = Complexity.MEDIUM
-                if complexity_str == "Low":
-                    complexity = Complexity.LOW
-                elif complexity_str == "High":
-                    complexity = Complexity.HIGH
+                # Map implementation priority string to enum
+                impl_priority_str = s_data.get("implementation_priority", "Medium")
+                impl_priority = Priority.MEDIUM
+                if impl_priority_str == "Low":
+                    impl_priority = Priority.LOW
+                elif impl_priority_str == "High":
+                    impl_priority = Priority.HIGH
 
                 solution = AnalysisResult(
                     process_step=s_data.get("process_step", "Unknown"),
                     observed_behavior=s_data.get("observed_behavior", ""),
-                    pain_point_severity=severity,
+                    pain_point_priority=pain_priority,
                     proposed_solution=s_data.get("proposed_solution", ""),
                     tech_stack_recommendation=s_data.get("tech_stack_recommendation", []),
                     estimated_roi_hours=int(s_data.get("estimated_roi_hours", 0)),
-                    implementation_complexity=complexity,
+                    implementation_priority=impl_priority,
                 )
                 solutions.append(solution)
 
@@ -265,7 +262,7 @@ class SolutionArchitectAgent(BaseAgent):
         """
         Calculate priority score for each solution.
 
-        Priority = (ROI * Severity Weight) / Complexity Weight
+        Score = (ROI * Pain Priority Weight) / Implementation Priority Weight
 
         Args:
             solutions: List of solutions
@@ -273,26 +270,19 @@ class SolutionArchitectAgent(BaseAgent):
         Returns:
             Solutions with priority scores, sorted by priority
         """
-        severity_weights = {
-            Severity.LOW: 1,
-            Severity.MEDIUM: 2,
-            Severity.HIGH: 3,
-            Severity.CRITICAL: 4,
-        }
-
-        complexity_weights = {
-            Complexity.LOW: 1,
-            Complexity.MEDIUM: 2,
-            Complexity.HIGH: 3,
+        priority_weights = {
+            Priority.LOW: 1,
+            Priority.MEDIUM: 2,
+            Priority.HIGH: 3,
         }
 
         for solution in solutions:
             roi = solution.estimated_roi_hours
-            severity_weight = severity_weights.get(solution.pain_point_severity, 2)
-            complexity_weight = complexity_weights.get(solution.implementation_complexity, 2)
+            pain_weight = priority_weights.get(solution.pain_point_priority, 2)
+            impl_weight = priority_weights.get(solution.implementation_priority, 2)
 
-            # Priority formula: higher ROI and severity, lower complexity = higher priority
-            priority = (roi * severity_weight) / (complexity_weight + 0.1)
+            # Priority formula: higher ROI and pain priority, lower impl priority = higher score
+            priority = (roi * pain_weight) / (impl_weight + 0.1)
             solution.priority_score = min(100, max(0, priority))
 
         # Sort by priority descending
@@ -324,24 +314,24 @@ class SolutionArchitectAgent(BaseAgent):
             gap = gap_lookup.get(solution.process_step)
             gap_id = gap.id if gap else str(uuid.uuid4())
 
-            # Estimate costs based on complexity
+            # Estimate costs based on implementation priority
             cost_ranges = {
-                Complexity.LOW: "$2,000 - $10,000",
-                Complexity.MEDIUM: "$10,000 - $50,000",
-                Complexity.HIGH: "$50,000 - $200,000",
+                Priority.LOW: "$2,000 - $10,000",
+                Priority.MEDIUM: "$10,000 - $50,000",
+                Priority.HIGH: "$50,000 - $200,000",
             }
 
             effort_ranges = {
-                Complexity.LOW: 40,
-                Complexity.MEDIUM: 160,
-                Complexity.HIGH: 480,
+                Priority.LOW: 40,
+                Priority.MEDIUM: 160,
+                Priority.HIGH: 480,
             }
 
             # Calculate financial metrics
             hourly_rate = 50  # Assumed average hourly cost
             monthly_savings = solution.estimated_roi_hours * hourly_rate
             implementation_cost_low = int(cost_ranges.get(
-                solution.implementation_complexity, "$10,000 - $50,000"
+                solution.implementation_priority, "$10,000 - $50,000"
             ).split(" - ")[0].replace("$", "").replace(",", ""))
 
             payback_months = implementation_cost_low / monthly_savings if monthly_savings > 0 else 12
@@ -354,10 +344,10 @@ class SolutionArchitectAgent(BaseAgent):
                 technology_stack=solution.tech_stack_recommendation,
                 implementation_steps=self._generate_implementation_steps(solution),
                 estimated_effort_hours=effort_ranges.get(
-                    solution.implementation_complexity, 160
+                    solution.implementation_priority, 160
                 ),
                 estimated_cost_range=cost_ranges.get(
-                    solution.implementation_complexity, "$10,000 - $50,000"
+                    solution.implementation_priority, "$10,000 - $50,000"
                 ),
                 estimated_monthly_savings=monthly_savings,
                 payback_period_months=round(payback_months, 1),
@@ -403,7 +393,7 @@ class SolutionArchitectAgent(BaseAgent):
         """Identify implementation risks."""
         risks = []
 
-        if solution.implementation_complexity == Complexity.HIGH:
+        if solution.implementation_priority == Priority.HIGH:
             risks.append("Complex implementation may require specialized expertise")
             risks.append("Higher risk of timeline delays")
 
