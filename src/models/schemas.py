@@ -116,10 +116,6 @@ class Hypothesis(BaseModel):
         default_factory=list,
         description="Quotes or references from source documents"
     )
-    indicators: List[str] = Field(
-        default_factory=list,
-        description="Keywords/patterns that triggered this hypothesis"
-    )
     confidence: float = Field(
         default=0.5,
         ge=0.0,
