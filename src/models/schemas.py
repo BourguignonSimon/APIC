@@ -406,29 +406,6 @@ class ValidationError(BaseModel):
     error_code: Optional[str] = None
 
 
-class WebhookEvent(str, Enum):
-    """Types of webhook events."""
-    WORKFLOW_CREATED = "workflow.created"
-    WORKFLOW_STATE_CHANGED = "workflow.state_changed"
-    WORKFLOW_SUSPENDED = "workflow.suspended"
-    WORKFLOW_RESUMED = "workflow.resumed"
-    WORKFLOW_COMPLETED = "workflow.completed"
-    WORKFLOW_FAILED = "workflow.failed"
-    DOCUMENT_UPLOADED = "document.uploaded"
-    DOCUMENT_PROCESSED = "document.processed"
-
-
-class WebhookConfig(BaseModel):
-    """Configuration for a webhook endpoint."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    project_id: str
-    url: str
-    events: List[WebhookEvent]
-    secret: Optional[str] = None
-    active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 class BulkUploadResult(BaseModel):
     """Result of a bulk document upload operation."""
     total: int
@@ -445,16 +422,3 @@ class PaginatedResponse(BaseModel):
     page_size: int
     total_pages: int
     items: List[Any]
-
-
-class AnalyticsSummary(BaseModel):
-    """Analytics summary for dashboard."""
-    total_projects: int
-    completed_projects: int
-    active_projects: int
-    failed_projects: int
-    average_completion_time: Optional[float] = None
-    total_hours_saved: Optional[float] = None
-    total_solutions_recommended: int
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None
