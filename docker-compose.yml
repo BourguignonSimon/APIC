@@ -24,7 +24,7 @@ services:
   api:
     build:
       context: .
-      target: api
+      dockerfile: Dockerfile.api
     container_name: apic-api
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/apic
@@ -47,7 +47,7 @@ services:
   frontend:
     build:
       context: .
-      target: frontend
+      dockerfile: Dockerfile.frontend
     container_name: apic-frontend
     environment:
       - API_BASE_URL=http://api:8000/api/v1
