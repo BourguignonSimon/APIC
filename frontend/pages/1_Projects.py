@@ -77,10 +77,8 @@ def main():
 
             with col4:
                 if st.button("Open ->", key=f"open_{project['id']}", use_container_width=True):
-                    full_project = api_request("GET", f"/projects/{project['id']}")
-                    if full_project:
-                        st.session_state.current_project = full_project
-                        st.switch_page("pages/3_Project.py")
+                    st.session_state.current_project_id = project['id']
+                    st.switch_page("pages/3_Project.py")
 
             st.divider()
 

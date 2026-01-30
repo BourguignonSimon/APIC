@@ -98,7 +98,7 @@ def main():
                     )
 
                 if result:
-                    st.session_state.current_project = result
+                    st.session_state.current_project_id = result['id']
                     st.session_state.show_success = "Project created successfully! Now upload your documents to get started."
                     st.switch_page("pages/3_Project.py")
 

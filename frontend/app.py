@@ -27,8 +27,8 @@ st.set_page_config(
 apply_styles()
 
 # Initialize session state
-if "current_project" not in st.session_state:
-    st.session_state.current_project = None
+if "current_project_id" not in st.session_state:
+    st.session_state.current_project_id = None
 if "show_success" not in st.session_state:
     st.session_state.show_success = None
 
@@ -149,10 +149,8 @@ def main():
                 display_status_badge(project.get('status', 'unknown'))
             with col3:
                 if st.button("Open", key=f"home_open_{project['id']}"):
-                    full_project = api_request("GET", f"/projects/{project['id']}")
-                    if full_project:
-                        st.session_state.current_project = full_project
-                        st.switch_page("pages/3_Project.py")
+                    st.session_state.current_project_id = project['id']
+                    st.switch_page("pages/3_Project.py")
 
 
 if __name__ == "__main__":

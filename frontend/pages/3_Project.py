@@ -29,12 +29,10 @@ st.set_page_config(
 apply_styles()
 
 # Initialize session state
-if "current_project" not in st.session_state:
-    st.session_state.current_project = None
+if "current_project_id" not in st.session_state:
+    st.session_state.current_project_id = None
 if "show_success" not in st.session_state:
     st.session_state.show_success = None
-if "url_list" not in st.session_state:
-    st.session_state.url_list = []
 
 
 def get_default_interview_script():
@@ -167,9 +165,6 @@ def render_analysis_tab(project_id: str):
                 result = api_request("POST", "/workflow/start", json={"project_id": project_id})
                 if result:
                     render_success_message("Analysis complete! Interview script has been generated. Go to the Interview tab to view it.")
-                    updated = api_request("GET", f"/projects/{project_id}")
-                    if updated:
-                        st.session_state.current_project = updated
                     st.rerun()
 
     st.divider()
@@ -285,9 +280,6 @@ def render_interview_tab(project_id: str):
                     result = api_request("POST", "/workflow/resume", json={"project_id": project_id, "transcript": transcript.strip()})
                     if result:
                         render_success_message("Analysis complete! Check the Results tab to view recommendations.")
-                        updated = api_request("GET", f"/projects/{project_id}")
-                        if updated:
-                            st.session_state.current_project = updated
                         st.rerun()
 
 
@@ -424,11 +416,20 @@ def render_report_tab(project_id: str):
 
 def main():
     """Render the project detail page with tabs."""
-    project = st.session_state.current_project
+    project_id = st.session_state.current_project_id
 
-    if not project:
+    if not project_id:
         st.error("No project selected. Please select a project from the list.")
         if st.button("<- Go to Projects"):
+            st.switch_page("pages/1_Projects.py")
+        return
+
+    # Fetch project from API (single source of truth)
+    project = api_request("GET", f"/projects/{project_id}", show_error=False)
+    if not project:
+        st.error("Failed to load project. It may have been deleted.")
+        if st.button("<- Go to Projects"):
+            st.session_state.current_project_id = None
             st.switch_page("pages/1_Projects.py")
         return
 
@@ -447,11 +448,7 @@ def main():
         display_status_badge(project.get('status', 'unknown'))
     with col3:
         if st.button("Refresh", help="Refresh project data", key="refresh_project"):
-            with st.spinner("Refreshing..."):
-                updated = api_request("GET", f"/projects/{project['id']}")
-                if updated:
-                    st.session_state.current_project = updated
-                    st.rerun()
+            st.rerun()
 
     st.divider()
 
