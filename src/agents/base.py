@@ -40,19 +40,17 @@ class BaseAgent(ABC):
         self.name = name
         self.agent_config = agent_config
 
-        # Initialize LLM based on agent configuration or defaults
+        # Initialize LLM - uses global provider from settings
         if llm:
             self.llm = llm
         elif agent_config and agent_config.model:
-            # Use agent-specific model configuration
+            # Use agent-specific model parameters (temperature, max_tokens)
             self.llm = get_llm(
-                provider=agent_config.model.provider,
-                model=agent_config.model.model,
                 temperature=agent_config.model.temperature,
                 max_tokens=agent_config.model.max_tokens,
             )
         else:
-            # Use default LLM
+            # Use default LLM configuration
             self.llm = get_llm()
 
         self.logger = logging.getLogger(f"apic.agents.{name}")
@@ -61,9 +59,7 @@ class BaseAgent(ABC):
         if agent_config:
             self.log_debug(f"Initialized with custom configuration")
             if agent_config.model:
-                self.log_debug(
-                    f"Using model: {agent_config.model.provider}/{agent_config.model.model}"
-                )
+                self.log_debug(f"Using custom model settings: temp={agent_config.model.temperature}")
 
     @abstractmethod
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
