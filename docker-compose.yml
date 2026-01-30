@@ -30,12 +30,13 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/apic
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east-1}
+      - CHROMA_PERSIST_DIR=/app/chroma_db
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai}
     volumes:
       - ./uploads:/app/uploads
       - ./reports:/app/reports
+      - ./scripts:/app/scripts
+      - ./chroma_db:/app/chroma_db
     ports:
       - "8001:8000"
     depends_on:
