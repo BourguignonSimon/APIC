@@ -15,7 +15,6 @@ from src.models.schemas import (
     InterviewQuestion,
     InterviewScript,
     GraphState,
-    CustomerContext,
     DiagnosticLead,
 )
 from src.services.interview_script_generator import get_interview_script_generator
@@ -306,12 +305,18 @@ class InterviewArchitectAgent(BaseAgent):
                 analysis,
             )
 
-            # Create the interview script with customer context and diagnostic form
+            # Create the interview script with flattened customer context fields
             interview_script = InterviewScript(
                 project_id=project_id,
                 target_departments=target_departments or self._extract_departments(hypotheses),
                 target_roles=target_roles,
-                customer_context=customer_context,
+                customer_business_overview=customer_context["business_overview"],
+                customer_organization_structure=customer_context["organization_structure"],
+                customer_challenges=customer_context["current_challenges"],
+                customer_key_processes=customer_context["key_processes"],
+                customer_stakeholders=customer_context["stakeholders"],
+                customer_industry_context=customer_context["industry_context"],
+                customer_data_sources_summary=customer_context["data_sources_summary"],
                 diagnostic_leads=diagnostic_leads,
                 introduction=introduction,
                 questions=questions,
@@ -1055,7 +1060,7 @@ Consider 3-5 minutes per main question, plus time for follow-ups, introduction, 
         state: Dict[str, Any],
         hypotheses: List[Hypothesis],
         analysis: Dict[str, Any],
-    ) -> CustomerContext:
+    ) -> Dict[str, Any]:
         """
         Generate customer context from ingested data and analysis.
 
@@ -1065,7 +1070,7 @@ Consider 3-5 minutes per main question, plus time for follow-ups, introduction, 
             analysis: Analysis of hypotheses
 
         Returns:
-            CustomerContext object with customer-specific information
+            Dict with customer context fields
         """
         system_prompt = """You are an expert management consultant preparing a customer context summary
 for an interview script. Based on the provided project information and analysis, create a comprehensive
@@ -1163,28 +1168,28 @@ Return ONLY the JSON object."""
             context_data = json.loads(content)
             self.log_info("Customer context generated successfully")
 
-            return CustomerContext(
-                business_overview=context_data.get("business_overview", ""),
-                organization_structure=context_data.get("organization_structure", ""),
-                current_challenges=context_data.get("current_challenges", []),
-                key_processes=context_data.get("key_processes", []),
-                stakeholders=context_data.get("stakeholders", []),
-                industry_context=context_data.get("industry_context", ""),
-                data_sources_summary=context_data.get("data_sources_summary", ""),
-            )
+            return {
+                "business_overview": context_data.get("business_overview", ""),
+                "organization_structure": context_data.get("organization_structure", ""),
+                "current_challenges": context_data.get("current_challenges", []),
+                "key_processes": context_data.get("key_processes", []),
+                "stakeholders": context_data.get("stakeholders", []),
+                "industry_context": context_data.get("industry_context", ""),
+                "data_sources_summary": context_data.get("data_sources_summary", ""),
+            }
 
         except Exception as e:
             self.log_error(f"Failed to parse customer context: {e}")
             # Return basic context
-            return CustomerContext(
-                business_overview=f"{client_name} - {project_name}",
-                organization_structure="See organizational charts",
-                current_challenges=[h.description for h in hypotheses[:3]],
-                key_processes=[h.process_area for h in hypotheses],
-                stakeholders=departments if isinstance(departments, list) else [],
-                industry_context="Industry context to be determined during interviews",
-                data_sources_summary="Analysis based on uploaded documents",
-            )
+            return {
+                "business_overview": f"{client_name} - {project_name}",
+                "organization_structure": "See organizational charts",
+                "current_challenges": [h.description for h in hypotheses[:3]],
+                "key_processes": [h.process_area for h in hypotheses],
+                "stakeholders": departments if isinstance(departments, list) else [],
+                "industry_context": "Industry context to be determined during interviews",
+                "data_sources_summary": "Analysis based on uploaded documents",
+            }
 
     async def _generate_diagnostic_leads(
         self,

@@ -31,6 +31,37 @@ class InterviewScriptGenerator:
         self.scripts_dir = Path(settings.SCRIPTS_DIR)
         self.scripts_dir.mkdir(parents=True, exist_ok=True)
 
+    def _extract_customer_context(self, interview_script: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract customer context from flattened interview script fields.
+
+        Args:
+            interview_script: The interview script data with flattened customer fields
+
+        Returns:
+            Dict with customer context data, or empty dict if no content
+        """
+        context = {
+            "business_overview": interview_script.get("customer_business_overview", ""),
+            "organization_structure": interview_script.get("customer_organization_structure", ""),
+            "current_challenges": interview_script.get("customer_challenges", []),
+            "key_processes": interview_script.get("customer_key_processes", []),
+            "stakeholders": interview_script.get("customer_stakeholders", []),
+            "industry_context": interview_script.get("customer_industry_context", ""),
+            "data_sources_summary": interview_script.get("customer_data_sources_summary", ""),
+        }
+        # Return empty dict if no meaningful content
+        has_content = any([
+            context["business_overview"],
+            context["organization_structure"],
+            context["current_challenges"],
+            context["key_processes"],
+            context["stakeholders"],
+            context["industry_context"],
+            context["data_sources_summary"],
+        ])
+        return context if has_content else {}
+
     def get_project_scripts_dir(self, project_id: str) -> Path:
         """
         Get or create the scripts directory for a specific project.
@@ -221,7 +252,7 @@ class InterviewScriptGenerator:
         content.append(Spacer(1, 12))
 
         # Customer Context Section
-        customer_context = interview_script.get("customer_context", {})
+        customer_context = self._extract_customer_context(interview_script)
         if customer_context:
             content.append(Paragraph("Customer Context", heading_style))
 
@@ -525,7 +556,7 @@ class InterviewScriptGenerator:
         )
 
         # Customer Context Section
-        customer_context = interview_script.get("customer_context", {})
+        customer_context = self._extract_customer_context(interview_script)
         if customer_context:
             doc.add_heading("Customer Context", level=1)
 
@@ -803,7 +834,7 @@ class InterviewScriptGenerator:
         lines.append("")
 
         # Customer Context Section
-        customer_context = interview_script.get("customer_context", {})
+        customer_context = self._extract_customer_context(interview_script)
         if customer_context:
             lines.append("## Customer Context")
             lines.append("")

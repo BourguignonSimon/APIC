@@ -14,7 +14,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from .base import BaseAgent
 from src.models.schemas import (
     Report,
-    ExecutiveSummary,
     CurrentVsFutureState,
     Hypothesis,
     GapAnalysisItem,
@@ -74,8 +73,8 @@ class ReportingAgent(BaseAgent):
                 for r in state.get("solution_recommendations", [])
             ]
 
-            # Generate executive summary
-            executive_summary = await self._generate_executive_summary(
+            # Generate executive summary data
+            summary_data = await self._generate_executive_summary(
                 hypotheses, gaps, solutions, recommendations
             )
 
@@ -92,12 +91,17 @@ class ReportingAgent(BaseAgent):
                 state.get("transcript", "")
             )
 
-            # Create the report
+            # Create the report with flattened executive summary fields
             report = Report(
                 id=str(uuid.uuid4()),
                 project_id=project_id,
                 title=f"Process Improvement Analysis - {project.get('client_name', 'Client')}",
-                executive_summary=executive_summary,
+                summary_overview=summary_data["overview"],
+                key_findings=summary_data["key_findings"],
+                top_recommendations=summary_data["top_recommendations"],
+                total_potential_savings=summary_data["total_potential_savings"],
+                total_implementation_cost=summary_data["total_implementation_cost"],
+                overall_roi_percentage=summary_data["overall_roi_percentage"],
                 hypotheses=hypotheses,
                 interview_insights=interview_insights,
                 gap_analyses=gaps,
@@ -141,9 +145,9 @@ class ReportingAgent(BaseAgent):
         gaps: List[GapAnalysisItem],
         solutions: List[AnalysisResult],
         recommendations: List[SolutionRecommendation],
-    ) -> ExecutiveSummary:
+    ) -> Dict[str, Any]:
         """
-        Generate the executive summary section.
+        Generate the executive summary data.
 
         Args:
             hypotheses: List of hypotheses
@@ -152,7 +156,7 @@ class ReportingAgent(BaseAgent):
             recommendations: List of recommendations
 
         Returns:
-            Executive summary
+            Dict with executive summary fields
         """
         # Calculate financial metrics
         total_monthly_savings = sum(r.estimated_monthly_savings for r in recommendations)
@@ -218,14 +222,14 @@ class ReportingAgent(BaseAgent):
             for s in sorted(solutions, key=lambda x: x.priority_score, reverse=True)[:5]
         ]
 
-        return ExecutiveSummary(
-            overview=response.content,
-            key_findings=top_findings,
-            top_recommendations=top_recommendations,
-            total_potential_savings=total_annual_savings,
-            total_implementation_cost=avg_cost,
-            overall_roi_percentage=roi_percentage,
-        )
+        return {
+            "overview": response.content,
+            "key_findings": top_findings,
+            "top_recommendations": top_recommendations,
+            "total_potential_savings": total_annual_savings,
+            "total_implementation_cost": avg_cost,
+            "overall_roi_percentage": roi_percentage,
+        }
 
     async def _generate_current_vs_future(
         self,
@@ -464,15 +468,15 @@ class ReportingAgent(BaseAgent):
 
         # Executive Summary
         content.append(Paragraph("Executive Summary", heading_style))
-        content.append(Paragraph(report.executive_summary.overview, styles['Normal']))
+        content.append(Paragraph(report.summary_overview, styles['Normal']))
         content.append(Spacer(1, 12))
 
         # Key Metrics Table
         metrics_data = [
             ["Metric", "Value"],
-            ["Potential Annual Savings", f"${report.executive_summary.total_potential_savings:,.0f}"],
-            ["Implementation Cost", f"${report.executive_summary.total_implementation_cost:,.0f}"],
-            ["Projected ROI", f"{report.executive_summary.overall_roi_percentage:.1f}%"],
+            ["Potential Annual Savings", f"${report.total_potential_savings:,.0f}"],
+            ["Implementation Cost", f"${report.total_implementation_cost:,.0f}"],
+            ["Projected ROI", f"{report.overall_roi_percentage:.1f}%"],
         ]
         metrics_table = Table(metrics_data, colWidths=[3*inch, 2*inch])
         metrics_table.setStyle(TableStyle([
@@ -489,13 +493,13 @@ class ReportingAgent(BaseAgent):
 
         # Key Findings
         content.append(Paragraph("Key Findings", heading_style))
-        for finding in report.executive_summary.key_findings:
+        for finding in report.key_findings:
             content.append(Paragraph(f"• {finding}", styles['Normal']))
         content.append(Spacer(1, 24))
 
         # Recommendations
         content.append(Paragraph("Top Recommendations", heading_style))
-        for rec in report.executive_summary.top_recommendations:
+        for rec in report.top_recommendations:
             content.append(Paragraph(f"• {rec}", styles['Normal']))
         content.append(PageBreak())
 
