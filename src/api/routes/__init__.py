@@ -1,7 +1,5 @@
 """API Routes Package."""
 
-from . import projects
-from . import documents
-from . import workflow
+from . import routes
 
-__all__ = ["projects", "documents", "workflow"]
+__all__ = ["routes"]

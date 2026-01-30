@@ -123,7 +123,7 @@ class TestBulkOperations:
     @pytest.mark.asyncio
     async def test_bulk_document_upload(self):
         """Test uploading multiple documents in a single operation."""
-        from src.api.routes.documents import bulk_upload_documents
+        from src.api.routes.routes import bulk_upload_documents
 
         project_id = str(uuid.uuid4())
 
@@ -152,7 +152,7 @@ class TestBulkOperations:
     @pytest.mark.asyncio
     async def test_bulk_document_upload_handles_partial_failure(self):
         """Test that bulk upload handles cases where some documents fail."""
-        from src.api.routes.documents import bulk_upload_documents
+        from src.api.routes.routes import bulk_upload_documents
 
         project_id = str(uuid.uuid4())
 
@@ -187,7 +187,7 @@ class TestBulkOperations:
     @pytest.mark.asyncio
     async def test_bulk_project_status_update(self):
         """Test updating status for multiple projects at once."""
-        from src.api.routes.projects import bulk_update_project_status
+        from src.api.routes.routes import bulk_update_project_status
 
         project_ids = [str(uuid.uuid4()) for _ in range(5)]
         new_status = ProjectStatus.ARCHIVED
@@ -308,7 +308,7 @@ class TestPaginationAndFiltering:
     @pytest.mark.asyncio
     async def test_paginated_projects_list(self):
         """Test that project list supports pagination."""
-        from src.api.routes.projects import get_projects_paginated
+        from src.api.routes.routes import get_projects_paginated
 
         with patch('src.services.state_manager.StateManager') as mock_sm:
             mock_instance = AsyncMock()
@@ -333,7 +333,7 @@ class TestPaginationAndFiltering:
     @pytest.mark.asyncio
     async def test_filter_projects_by_status(self):
         """Test filtering projects by status."""
-        from src.api.routes.projects import get_projects_filtered
+        from src.api.routes.routes import get_projects_filtered
 
         with patch('src.services.state_manager.StateManager') as mock_sm:
             mock_instance = AsyncMock()
@@ -351,7 +351,7 @@ class TestPaginationAndFiltering:
     @pytest.mark.asyncio
     async def test_filter_projects_by_date_range(self):
         """Test filtering projects by creation date range."""
-        from src.api.routes.projects import get_projects_by_date_range
+        from src.api.routes.routes import get_projects_by_date_range
 
         start_date = datetime.now() - timedelta(days=30)
         end_date = datetime.now()

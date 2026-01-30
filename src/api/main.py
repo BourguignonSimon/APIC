@@ -101,12 +101,10 @@ def create_app() -> FastAPI:
             name="scripts",
         )
 
-    # Include routers
-    from src.api.routes import projects, documents, workflow
+    # Include router
+    from src.api.routes.routes import router
 
-    app.include_router(projects.router, prefix="/api/v1", tags=["Projects"])
-    app.include_router(documents.router, prefix="/api/v1", tags=["Documents"])
-    app.include_router(workflow.router, prefix="/api/v1", tags=["Workflow"])
+    app.include_router(router, prefix="/api/v1")
 
     # Health check endpoint
     @app.get("/health", tags=["Health"])
