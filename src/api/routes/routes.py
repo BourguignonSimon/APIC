@@ -11,8 +11,6 @@ import uuid
 import zipfile
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from urllib.parse import urlparse
-
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -125,21 +123,6 @@ class UploadResponse(BaseModel):
 
     message: str
     documents: List[DocumentResponse]
-
-
-class URLUploadRequest(BaseModel):
-    """Request model for URL upload."""
-
-    urls: List[str]
-    category: str = "general"
-
-
-class URLUploadResponse(BaseModel):
-    """Response model for URL upload."""
-
-    message: str
-    documents: List[DocumentResponse]
-    failed_urls: List[dict] = []
 
 
 # ============================================================================
@@ -457,64 +440,6 @@ async def upload_documents(
     return UploadResponse(
         message=f"Successfully uploaded {len(uploaded_docs)} document(s)",
         documents=uploaded_docs,
-    )
-
-
-@router.post(
-    "/projects/{project_id}/documents/urls",
-    response_model=URLUploadResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Add URLs as documents",
-    tags=["Documents"],
-)
-async def upload_urls(project_id: str, request: URLUploadRequest):
-    """Add URLs as documents for analysis."""
-    project = state_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found",
-        )
-
-    uploaded_docs = []
-    failed_urls = []
-
-    for url in request.urls:
-        try:
-            if not url.startswith(("http://", "https://")):
-                failed_urls.append({"url": url, "error": "Invalid URL format"})
-                continue
-
-            parsed_url = urlparse(url)
-            filename = parsed_url.path.split("/")[-1] or parsed_url.netloc
-            if not filename:
-                filename = parsed_url.netloc
-            filename = f"{filename}_{str(uuid.uuid4())[:8]}"
-
-            doc = state_manager.add_document(
-                project_id=project_id,
-                filename=filename,
-                file_type="url",
-                file_size=0,
-                file_path="",
-                category=request.category,
-                source_type="url",
-                source_url=url,
-            )
-            uploaded_docs.append(DocumentResponse(**doc))
-        except Exception as e:
-            failed_urls.append({"url": url, "error": str(e)})
-
-    if not uploaded_docs and failed_urls:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to add any URLs: {failed_urls}",
-        )
-
-    return URLUploadResponse(
-        message=f"Successfully added {len(uploaded_docs)} URL(s)",
-        documents=uploaded_docs,
-        failed_urls=failed_urls,
     )
 
 
