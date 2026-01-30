@@ -284,17 +284,6 @@ with st.progress(0) as progress_bar:
     progress_bar.progress(1.0, "Complete!")
 ```
 
-#### 1.3 Add Caching
-```python
-# src/services/llm_cache.py
-from functools import lru_cache
-
-@lru_cache(maxsize=100)
-def get_cached_summary(document_id: str) -> str:
-    """Cache document summaries to avoid re-generation"""
-    pass
-```
-
 ### Priority 2: Medium Impact
 
 #### 2.1 Multi-Language Support
