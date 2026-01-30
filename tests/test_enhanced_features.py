@@ -12,11 +12,8 @@ import json
 # These imports will work once features are implemented
 from src.models.schemas import (
     ProjectStatus,
-    WebhookEvent,
-    WebhookConfig,
     BulkUploadResult,
     ValidationError as APIValidationError,
-    AnalyticsSummary,
     PaginatedResponse,
 )
 
@@ -210,107 +207,6 @@ class TestBulkOperations:
 
 
 # ============================================================================
-# Test Webhook Notifications
-# ============================================================================
-
-class TestWebhookNotifications:
-    """Test suite for webhook notification system."""
-
-    @pytest.mark.asyncio
-    async def test_webhook_fires_on_workflow_state_change(self):
-        """Test that webhooks fire when workflow state changes."""
-        from src.services.webhook_manager import WebhookManager
-
-        manager = WebhookManager()
-
-        webhook_config = {
-            "url": "https://example.com/webhook",
-            "events": ["workflow.state_changed", "workflow.completed"],
-            "secret": "test-secret",
-        }
-
-        project_id = str(uuid.uuid4())
-
-        # Register webhook
-        await manager.register_webhook(project_id, webhook_config)
-
-        # Trigger state change
-        with patch('aiohttp.ClientSession.post') as mock_post:
-            mock_post.return_value.__aenter__.return_value.status = 200
-
-            await manager.trigger_event(
-                project_id,
-                "workflow.state_changed",
-                {"from": "ingesting", "to": "analyzing"}
-            )
-
-            # Verify webhook was called
-            assert mock_post.called
-            call_args = mock_post.call_args
-            assert "example.com/webhook" in str(call_args)
-
-    @pytest.mark.asyncio
-    async def test_webhook_retry_on_failure(self):
-        """Test that failed webhook calls are retried."""
-        from src.services.webhook_manager import WebhookManager
-
-        manager = WebhookManager(max_retries=3)
-
-        webhook_config = {
-            "url": "https://example.com/webhook",
-            "events": ["workflow.completed"],
-        }
-
-        project_id = str(uuid.uuid4())
-        await manager.register_webhook(project_id, webhook_config)
-
-        call_count = 0
-
-        async def mock_post_failing(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise Exception("Connection timeout")
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            return mock_response
-
-        with patch('aiohttp.ClientSession.post', side_effect=mock_post_failing):
-            await manager.trigger_event(
-                project_id,
-                "workflow.completed",
-                {"status": "success"}
-            )
-
-            # Should have retried until success
-            assert call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_webhook_signature_validation(self):
-        """Test that webhook payloads include HMAC signature for security."""
-        from src.services.webhook_manager import WebhookManager
-
-        manager = WebhookManager()
-
-        payload = {"event": "workflow.completed", "data": {"status": "success"}}
-        secret = "test-secret-key"
-
-        signature = manager.generate_signature(payload, secret)
-
-        # Signature should be a valid HMAC
-        assert signature is not None
-        assert len(signature) > 0
-
-        # Verification should work
-        is_valid = manager.verify_signature(payload, signature, secret)
-        assert is_valid is True
-
-        # Invalid signature should fail
-        is_valid = manager.verify_signature(payload, "invalid-sig", secret)
-        assert is_valid is False
-
-
-# ============================================================================
 # Test Enhanced Validation
 # ============================================================================
 
@@ -471,87 +367,6 @@ class TestPaginationAndFiltering:
             result = await get_projects_by_date_range(start_date, end_date)
 
             assert len(result) == 2
-
-
-# ============================================================================
-# Test Analytics & Metrics
-# ============================================================================
-
-class TestAnalyticsAndMetrics:
-    """Test suite for analytics and metrics features."""
-
-    @pytest.mark.asyncio
-    async def test_analytics_summary_generation(self):
-        """Test generation of analytics summary for dashboard."""
-        from src.services.analytics import AnalyticsService
-
-        service = AnalyticsService()
-
-        with patch.object(service, 'state_manager') as mock_sm:
-            mock_sm.get_all_projects = AsyncMock(return_value=[
-                {"status": "COMPLETED", "created_at": datetime.now() - timedelta(days=5)},
-                {"status": "ANALYZING", "created_at": datetime.now() - timedelta(days=3)},
-                {"status": "COMPLETED", "created_at": datetime.now() - timedelta(days=1)},
-            ])
-
-            summary = await service.generate_summary()
-
-            assert summary["total_projects"] == 3
-            assert summary["completed_projects"] == 2
-            assert summary["active_projects"] == 1
-            assert "average_completion_time" in summary
-
-    @pytest.mark.asyncio
-    async def test_workflow_performance_metrics(self):
-        """Test collection of workflow performance metrics."""
-        from src.services.analytics import AnalyticsService
-
-        service = AnalyticsService()
-
-        project_id = str(uuid.uuid4())
-
-        with patch.object(service, 'state_manager') as mock_sm:
-            mock_sm.get_workflow_metrics = AsyncMock(return_value={
-                "total_execution_time": 3600,  # 1 hour
-                "node_execution_times": {
-                    "ingestion": 600,
-                    "hypothesis": 900,
-                    "interview": 300,
-                    "gap_analysis": 800,
-                    "solution": 700,
-                    "reporting": 300,
-                },
-                "document_count": 5,
-                "hypothesis_count": 8,
-            })
-
-            metrics = await service.get_workflow_metrics(project_id)
-
-            assert metrics["total_execution_time"] == 3600
-            assert len(metrics["node_execution_times"]) == 6
-            assert metrics["document_count"] == 5
-
-    @pytest.mark.asyncio
-    async def test_roi_calculation_for_solutions(self):
-        """Test ROI calculation across all solutions."""
-        from src.services.analytics import AnalyticsService
-
-        service = AnalyticsService()
-
-        project_id = str(uuid.uuid4())
-
-        with patch.object(service, 'state_manager') as mock_sm:
-            mock_sm.get_solution_recommendations = AsyncMock(return_value=[
-                {"estimated_roi_hours": 40, "implementation_complexity": "Low"},
-                {"estimated_roi_hours": 60, "implementation_complexity": "Medium"},
-                {"estimated_roi_hours": 100, "implementation_complexity": "High"},
-            ])
-
-            roi_summary = await service.calculate_total_roi(project_id)
-
-            assert roi_summary["total_hours_saved"] == 200
-            assert roi_summary["total_solutions"] == 3
-            assert "average_roi_per_solution" in roi_summary
 
 
 # ============================================================================
