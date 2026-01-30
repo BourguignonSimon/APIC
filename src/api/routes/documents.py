@@ -7,7 +7,7 @@ import os
 import shutil
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, status, Form, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 from src.services.state_manager import StateManager
 from config.settings import settings
@@ -27,6 +27,8 @@ class DocumentResponse(BaseModel):
     filename: str
     file_type: str
     file_size: int
+    source_type: str = "file"
+    source_url: Optional[str] = None
     processed: bool = False
     chunk_count: int = 0
     uploaded_at: str
@@ -43,6 +45,19 @@ class UploadResponse(BaseModel):
     """Response model for file upload."""
     message: str
     documents: List[DocumentResponse]
+
+
+class URLUploadRequest(BaseModel):
+    """Request model for URL upload."""
+    urls: List[str]
+    category: str = "general"
+
+
+class URLUploadResponse(BaseModel):
+    """Response model for URL upload."""
+    message: str
+    documents: List[DocumentResponse]
+    failed_urls: List[dict] = []
 
 
 # ============================================================================
@@ -148,6 +163,89 @@ async def upload_documents(
     return UploadResponse(
         message=f"Successfully uploaded {len(uploaded_docs)} document(s)",
         documents=uploaded_docs,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/urls",
+    response_model=URLUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add URLs as documents",
+    description="Add one or more URLs as documents for a project.",
+)
+async def upload_urls(
+    project_id: str,
+    request: URLUploadRequest,
+):
+    """
+    Add URLs as documents for analysis.
+
+    The system will fetch and parse content from the provided URLs during analysis.
+    Supported content types: HTML, plain text, PDF
+    """
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    uploaded_docs = []
+    failed_urls = []
+
+    for url in request.urls:
+        try:
+            # Validate URL format
+            if not url.startswith(("http://", "https://")):
+                failed_urls.append({
+                    "url": url,
+                    "error": "Invalid URL format. Must start with http:// or https://"
+                })
+                continue
+
+            # Extract a filename from the URL
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            filename = parsed_url.path.split("/")[-1] or parsed_url.netloc
+            if not filename or filename == "":
+                filename = parsed_url.netloc
+
+            # Ensure unique filename
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            filename = f"{filename}_{unique_id}"
+
+            # Add to database
+            doc = state_manager.add_document(
+                project_id=project_id,
+                filename=filename,
+                file_type="url",
+                file_size=0,
+                file_path="",  # No file path for URLs
+                category=request.category,
+                source_type="url",
+                source_url=url,
+            )
+
+            uploaded_docs.append(DocumentResponse(**doc))
+
+        except Exception as e:
+            failed_urls.append({
+                "url": url,
+                "error": str(e)
+            })
+
+    if not uploaded_docs and failed_urls:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to add any URLs: {failed_urls}",
+        )
+
+    return URLUploadResponse(
+        message=f"Successfully added {len(uploaded_docs)} URL(s) as document(s)",
+        documents=uploaded_docs,
+        failed_urls=failed_urls,
     )
 
 

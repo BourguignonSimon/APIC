@@ -1320,6 +1320,77 @@ def render_documents_tab(project_id: str):
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
 
+    # URL Upload Section
+    st.markdown("### Add URLs as Documents")
+    st.markdown("You can also add web pages, articles, or online documentation as sources.")
+
+    # Initialize session state for URL list if not exists
+    if "url_list" not in st.session_state:
+        st.session_state.url_list = []
+
+    # URL input
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        url_input = st.text_input(
+            "Enter URL",
+            placeholder="https://example.com/documentation",
+            help="Add web pages, articles, or online documentation",
+            key="url_input_field"
+        )
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("➕ Add URL", use_container_width=True):
+            if url_input and url_input.strip():
+                if url_input.startswith(("http://", "https://")):
+                    if url_input not in st.session_state.url_list:
+                        st.session_state.url_list.append(url_input)
+                        st.rerun()
+                    else:
+                        st.warning("This URL is already in the list")
+                else:
+                    st.error("Please enter a valid URL starting with http:// or https://")
+
+    # Display added URLs
+    if st.session_state.url_list:
+        st.markdown(f"**{len(st.session_state.url_list)} URL(s) to add:**")
+        for idx, url in enumerate(st.session_state.url_list):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f"🔗 {url}")
+            with col2:
+                if st.button("❌", key=f"remove_url_{idx}", help="Remove URL"):
+                    st.session_state.url_list.pop(idx)
+                    st.rerun()
+
+        # Submit URLs button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("📤 Submit URLs", use_container_width=True, type="primary", key="submit_urls_btn"):
+                with st.spinner(f"Adding {len(st.session_state.url_list)} URL(s)..."):
+                    try:
+                        response = requests.post(
+                            f"{API_BASE_URL}/projects/{project_id}/documents/urls",
+                            json={
+                                "urls": st.session_state.url_list,
+                                "category": "general"
+                            },
+                            timeout=30
+                        )
+                        if response.ok:
+                            result = response.json()
+                            st.session_state.url_list = []  # Clear the list
+                            render_success_message(f"Successfully added {len(result['documents'])} URL(s) as documents!")
+                            if result.get("failed_urls"):
+                                st.warning(f"Failed to add {len(result['failed_urls'])} URL(s)")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to add URLs: {response.text}")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+
     # Existing Documents
     st.markdown("### Uploaded Documents")
 
@@ -1332,14 +1403,23 @@ def render_documents_tab(project_id: str):
 
         for doc in docs:
             file_type = doc.get('file_type', 'unknown')
+            source_type = doc.get('source_type', 'file')
+            source_url = doc.get('source_url', '')
             icon = get_file_icon(file_type)
             status_class = "processed" if doc.get('processed') else "pending"
             status_text = "Processed" if doc.get('processed') else "Pending"
 
+            # Display differently for URLs
+            if source_type == "url" and source_url:
+                display_name = f"<a href='{source_url}' target='_blank' style='color: #4CAF50;'>{doc.get('filename', 'Unknown')}</a>"
+                icon = "🔗"
+            else:
+                display_name = doc.get('filename', 'Unknown file')
+
             st.markdown(f"""
             <div class="document-item">
                 <span class="document-icon">{icon}</span>
-                <span class="document-name">{doc.get('filename', 'Unknown file')}</span>
+                <span class="document-name">{display_name}</span>
                 <span class="document-meta">{file_type.upper()}</span>
                 <span class="document-status {status_class}">{status_text}</span>
             </div>
@@ -1400,6 +1480,33 @@ def render_analysis_tab(project_id: str):
         st.markdown("### AI-Generated Interview Document")
         st.markdown("The AI agent has analyzed your documents and generated a comprehensive interview script. Download it in your preferred format.")
         st.markdown("<br>", unsafe_allow_html=True)
+
+        # Bulk download button (all formats as ZIP)
+        try:
+            response = requests.get(
+                f"{API_BASE_URL}/workflow/{project_id}/interview-script/export/all",
+                timeout=60
+            )
+            if response.ok:
+                col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 2, 1])
+                with col_bulk2:
+                    st.download_button(
+                        label="📦 Download All Formats (ZIP)",
+                        data=response.content,
+                        file_name=f"interview_script_{project_id}_all.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        type="primary",
+                        key="analysis_download_all_zip",
+                        help="Download PDF, Word, and Markdown in a single ZIP file"
+                    )
+        except Exception as e:
+            col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 2, 1])
+            with col_bulk2:
+                st.button("📦 Bulk Download Unavailable", disabled=True, use_container_width=True, key="analysis_zip_error")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("**Individual Formats:**")
 
         col1, col2, col3 = st.columns(3)
 

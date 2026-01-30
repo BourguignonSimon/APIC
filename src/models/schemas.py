@@ -89,12 +89,14 @@ class Project(BaseModel):
 # ============================================================================
 
 class Document(BaseModel):
-    """Model for uploaded documents."""
+    """Model for uploaded documents and URLs."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
     filename: str
-    file_type: str  # pdf, docx, txt, etc.
-    file_size: int  # bytes
+    file_type: str  # pdf, docx, txt, url, etc.
+    file_size: int = 0  # bytes (0 for URLs)
+    source_type: str = "file"  # "file" or "url"
+    source_url: Optional[str] = None  # URL if source_type is "url"
     chunk_count: int = 0
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     processed: bool = False

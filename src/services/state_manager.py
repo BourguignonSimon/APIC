@@ -83,7 +83,7 @@ class ProjectRecord(Base):
 
 
 class DocumentRecord(Base):
-    """Database model for uploaded documents."""
+    """Database model for uploaded documents and URLs."""
 
     __tablename__ = "documents"
 
@@ -92,7 +92,9 @@ class DocumentRecord(Base):
     filename = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False)
     file_size = Column(String(50), nullable=False)
-    file_path = Column(String(500), nullable=False)
+    file_path = Column(String(500), nullable=False, default="")
+    source_type = Column(String(20), default="file")  # "file" or "url"
+    source_url = Column(String(2000), nullable=True)  # URL if source_type is "url"
     chunk_count = Column(String(50), default="0")
     processed = Column(Boolean, default=False)
     content_summary = Column(Text, nullable=True)
@@ -396,6 +398,8 @@ class StateManager:
         file_size: int,
         file_path: str,
         category: str = "general",
+        source_type: str = "file",
+        source_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add a document record.
@@ -403,10 +407,12 @@ class StateManager:
         Args:
             project_id: Project ID
             filename: File name
-            file_type: File type (pdf, docx, etc.)
-            file_size: File size in bytes
-            file_path: Path to stored file
+            file_type: File type (pdf, docx, url, etc.)
+            file_size: File size in bytes (0 for URLs)
+            file_path: Path to stored file (empty for URLs)
             category: Document category (general, interview_results, etc.)
+            source_type: "file" or "url"
+            source_url: URL if source_type is "url"
 
         Returns:
             Document record
@@ -419,6 +425,8 @@ class StateManager:
                 file_size=str(file_size),
                 file_path=file_path,
                 category=category,
+                source_type=source_type,
+                source_url=source_url,
             )
             session.add(doc)
             session.commit()
@@ -430,6 +438,8 @@ class StateManager:
                 "file_type": doc.file_type,
                 "file_size": int(doc.file_size),
                 "file_path": doc.file_path,
+                "source_type": doc.source_type,
+                "source_url": doc.source_url,
                 "processed": doc.processed,
                 "chunk_count": int(doc.chunk_count),
                 "uploaded_at": doc.uploaded_at.isoformat(),
@@ -464,6 +474,8 @@ class StateManager:
                     "filename": d.filename,
                     "file_type": d.file_type,
                     "file_size": int(d.file_size),
+                    "source_type": d.source_type,
+                    "source_url": d.source_url,
                     "processed": d.processed,
                     "chunk_count": int(d.chunk_count),
                     "uploaded_at": d.uploaded_at.isoformat(),

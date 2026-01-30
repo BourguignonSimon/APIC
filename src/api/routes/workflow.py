@@ -7,6 +7,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Literal
 import uuid
+import zipfile
+import tempfile
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from fastapi.responses import FileResponse
@@ -464,6 +467,108 @@ async def export_interview_script(
         filename=filename,
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get(
+    "/workflow/{project_id}/interview-script/export/all",
+    summary="Export all interview script formats as ZIP",
+    description="Download all interview script formats (PDF, DOCX, Markdown) in a single ZIP file.",
+)
+async def export_all_interview_scripts(project_id: str):
+    """
+    Download all interview script formats in a single ZIP file.
+
+    Args:
+        project_id: The project ID
+
+    Returns:
+        ZIP file containing PDF, DOCX, and Markdown versions
+    """
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    generator = get_interview_script_generator()
+    state = state_manager.load_state(project_id)
+
+    if not state or not state.get("interview_script"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview script not found. Start analysis first.",
+        )
+
+    # Generate all formats if they don't exist
+    script_data = state["interview_script"]
+    project_data = state.get("project", project)
+
+    file_paths = {}
+    formats = ["pdf", "docx", "markdown"]
+
+    for fmt in formats:
+        try:
+            script_files = generator.get_script_files(project_id)
+            file_path = script_files.get(fmt)
+
+            # Generate if doesn't exist
+            if not file_path or not os.path.exists(file_path):
+                if fmt == "pdf":
+                    file_path = generator.generate_pdf(script_data, project_data)
+                elif fmt == "docx":
+                    file_path = generator.generate_docx(script_data, project_data)
+                elif fmt == "markdown":
+                    file_path = generator.generate_markdown(script_data, project_data)
+
+            if file_path and os.path.exists(file_path):
+                file_paths[fmt] = file_path
+        except Exception as e:
+            logger.error(f"Failed to generate {fmt} file: {e}")
+
+    if not file_paths:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate interview script files.",
+        )
+
+    # Create a temporary ZIP file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    client_name = project_data.get("client_name", project_id)
+    zip_filename = f"interview_script_{client_name}_{timestamp}.zip"
+
+    # Create temp file
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(temp_fd)
+
+    try:
+        # Create ZIP file
+        with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for fmt, file_path in file_paths.items():
+                # Add file to ZIP with just the basename
+                arcname = os.path.basename(file_path)
+                zipf.write(file_path, arcname=arcname)
+
+        # Return the ZIP file
+        return FileResponse(
+            path=temp_path,
+            media_type="application/zip",
+            filename=zip_filename,
+            headers={
+                "Content-Disposition": f"attachment; filename={zip_filename}",
+            },
+            background=BackgroundTasks().add_task(lambda: os.unlink(temp_path) if os.path.exists(temp_path) else None)
+        )
+    except Exception as e:
+        # Clean up temp file on error
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        logger.error(f"Failed to create ZIP file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create ZIP file: {str(e)}",
+        )
 
 
 @router.post(

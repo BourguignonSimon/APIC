@@ -19,6 +19,7 @@ from src.models.schemas import (
     DiagnosticLead,
 )
 from src.services.interview_script_generator import get_interview_script_generator
+from src.utils.prompt_manager import get_prompt_manager
 from config.settings import settings
 
 
@@ -40,76 +41,201 @@ class InterviewArchitectAgent(BaseAgent):
 
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate interview script based on hypotheses.
+        Generate interview script based on hypotheses using 3-tier fallback system.
+
+        This is the main entry point for interview script generation. It implements a
+        robust 3-tier hypothesis generation system that ensures an interview script is
+        ALWAYS generated, even when document analysis produces no hypotheses.
+
+        3-Tier Hypothesis Generation:
+        ------------------------------
+        Tier 1: Document-based hypotheses (from Hypothesis Generator Agent)
+                - Primary method: Uses analyzed documents to identify real inefficiencies
+                - Most accurate and context-specific
+
+        Tier 2: AI-generated hypotheses (using Gemini/OpenAI/Anthropic LLM)
+                - Fallback when Tier 1 produces no results
+                - Uses document summaries to generate likely hypotheses
+                - Still context-aware but relies on AI inference
+
+        Tier 3: Generic hypotheses (hardcoded common patterns)
+                - Last resort when both Tier 1 and Tier 2 fail
+                - Uses common process inefficiency patterns
+                - Ensures baseline interview quality
+
+        After hypothesis acquisition, the method:
+        - Gathers comprehensive context (documents, summaries, project info)
+        - Analyzes hypotheses to identify key themes and priorities
+        - Generates targeted interview questions based on analysis
+        - Creates a complete interview script ready for human execution
 
         Args:
-            state: Current graph state with hypotheses
+            state: Current graph state containing:
+                   - project_id: Unique identifier for the project
+                   - hypotheses: List of process improvement hypotheses (may be empty)
+                   - documents: Uploaded documents and their metadata
+                   - document_summaries: Text summaries of all documents
+                   - project: Client/industry/department information
 
         Returns:
-            Updated state with interview script (SUSPENDED for human interview)
+            Updated state with:
+                - interview_script: Complete interview script with questions
+                - script_generation_complete: True if successful
+                - next_step: "SUSPENDED" (human interview required)
+                - hypotheses: Updated with AI-generated hypotheses if Tier 2 was used
         """
         self.log_info("Starting interview script generation")
 
         try:
+            # Extract core information from state
             project_id = state.get("project_id")
-            hypotheses_data = state.get("hypotheses", [])
+            hypotheses_data = state.get("hypotheses", [])  # May be empty if Hypothesis Generator failed
             target_departments = state.get("project", {}).get("target_departments", [])
 
-            # Convert hypothesis dicts to objects
+            # Convert hypothesis dictionaries to Hypothesis objects for type safety
+            # Handles both dict and object formats to ensure compatibility
             hypotheses = [
                 Hypothesis(**h) if isinstance(h, dict) else h
                 for h in hypotheses_data
             ]
 
+            # ============================================================
+            # 3-TIER HYPOTHESIS GENERATION SYSTEM
+            # ============================================================
+            # If no hypotheses found from Hypothesis Generator (Tier 1),
+            # attempt AI generation (Tier 2), then fall back to generic (Tier 3)
             if not hypotheses:
-                self.log_info("No hypotheses to base interview on")
-                state["interview_script"] = None
-                state["script_generation_complete"] = True
-                state["messages"].append("No hypotheses available for interview generation")
-                return state
+                self.log_info("No hypotheses found from Hypothesis Generator - activating Tier 2: AI generation")
 
-            # First, analyze the hypotheses to understand key themes and priorities
-            self.log_info("Analyzing hypotheses to identify key themes and priorities")
-            analysis = await self._analyze_hypotheses(hypotheses, target_departments)
+                # TIER 2: AI-Generated Hypotheses
+                # Uses document summaries + project context to generate hypotheses via LLM
+                hypotheses = await self._generate_hypotheses_from_documents(state)
 
-            # Generate customer context from ingested data
-            self.log_info("Generating customer context from project data")
+                if hypotheses:
+                    self.log_info(f"Tier 2 SUCCESS: Generated {len(hypotheses)} hypotheses using AI (Gemini/OpenAI/Anthropic)")
+                    # Update state with AI-generated hypotheses so they're available downstream
+                    state["hypotheses"] = [h.model_dump() for h in hypotheses]
+                else:
+                    # TIER 3: Generic Hypotheses Fallback
+                    # Even if AI generation fails, continue with generic interview template
+                    # This ensures the workflow NEVER fails completely
+                    self.log_info("Tier 2 FAILED: AI hypothesis generation unsuccessful - activating Tier 3: Generic template")
+                    hypotheses = self._get_generic_hypotheses()
+                    self.log_info(f"Tier 3 ACTIVATED: Using {len(hypotheses)} generic hypotheses to ensure interview generation")
+
+            # ============================================================
+            # COMPREHENSIVE CONTEXT GATHERING
+            # ============================================================
+            # Gather ALL available information for rich interview generation
+            # This includes documents, summaries, project info, and hypotheses
+            # The comprehensive context ensures interview questions reference
+            # actual document content and are industry-appropriate
+            self.log_info("Gathering comprehensive context from all available sources")
+            comprehensive_context = self._gather_comprehensive_context(state, hypotheses)
+
+            # Log context summary for debugging and monitoring
+            self.log_info(
+                f"Context gathered: {comprehensive_context['documents_count']} documents, "
+                f"{comprehensive_context['summaries_count']} summaries, "
+                f"{len(hypotheses)} hypotheses"
+            )
+
+            # ============================================================
+            # HYPOTHESIS ANALYSIS
+            # ============================================================
+            # Analyze ALL available information (not just hypotheses) to identify:
+            # - Key themes and patterns
+            # - Priority areas for investigation
+            # - Root cause patterns
+            # - "Dull, Dirty, Dangerous" task indicators
+            # This analysis guides all subsequent question generation
+            self.log_info("Analyzing hypotheses with comprehensive context to identify key themes and priorities")
+            analysis = await self._analyze_hypotheses(
+                hypotheses,
+                target_departments,
+                comprehensive_context  # Includes documents, summaries, project info
+            )
+
+            # ============================================================
+            # CUSTOMER CONTEXT GENERATION
+            # ============================================================
+            # Create a rich customer profile that combines:
+            # - Project metadata (client, industry, departments)
+            # - Document-derived insights
+            # - Hypothesis patterns
+            # This context personalizes interview questions
+            self.log_info("Generating customer context from project data and document analysis")
             customer_context = await self._generate_customer_context(
                 state,
                 hypotheses,
                 analysis,
             )
 
-            # Generate diagnostic leads from hypotheses
-            self.log_info("Converting hypotheses to diagnostic leads")
+            # ============================================================
+            # DIAGNOSTIC LEADS GENERATION
+            # ============================================================
+            # Convert hypotheses into actionable diagnostic leads
+            # Each lead represents a specific area to probe during interviews
+            # Organized by priority and theme from the analysis
+            self.log_info("Converting hypotheses to diagnostic leads for structured investigation")
             diagnostic_leads = await self._generate_diagnostic_leads(
                 hypotheses,
                 analysis,
             )
 
-            # Determine roles to interview based on analysis
+            # ============================================================
+            # TARGET ROLE IDENTIFICATION
+            # ============================================================
+            # Determine which roles/positions should be interviewed based on:
+            # - Process areas identified in hypotheses
+            # - Department targets from project
+            # - Analysis priorities
+            # Ensures interviews target the right people with the right expertise
+            self.log_info("Determining target roles for interviews based on process areas")
             target_roles = await self._determine_target_roles(
                 hypotheses,
                 target_departments,
                 analysis,
             )
 
-            # Generate validation questions for each role based on analysis
+            # ============================================================
+            # VALIDATION QUESTIONS GENERATION
+            # ============================================================
+            # Generate role-specific questions to validate hypotheses
+            # These are hypothesis-driven questions that:
+            # - Test the accuracy of identified inefficiencies
+            # - Probe for evidence and examples
+            # - Assess severity and impact
+            self.log_info("Generating validation questions to test hypotheses with stakeholders")
             questions = await self._generate_questions(
                 hypotheses,
                 target_roles,
                 analysis,
             )
 
-            # Generate discovery questions to find new opportunities
-            self.log_info("Generating discovery questions for new opportunities")
+            # ============================================================
+            # DISCOVERY QUESTIONS GENERATION
+            # ============================================================
+            # Generate open-ended discovery questions to find:
+            # - Issues not captured in hypotheses
+            # - Hidden inefficiencies
+            # - Opportunities for improvement
+            # These complement validation questions with exploratory probing
+            self.log_info("Generating discovery questions for finding new opportunities")
             discovery_questions = await self._generate_discovery_questions(
                 hypotheses,
                 target_roles,
                 analysis,
             )
 
-            # Generate tailored introduction based on analysis
+            # ============================================================
+            # INTERVIEW INTRODUCTION GENERATION
+            # ============================================================
+            # Create a tailored introduction that:
+            # - Sets context for the interviewee
+            # - Explains the purpose based on analysis themes
+            # - Builds rapport and trust
+            self.log_info("Generating tailored interview introduction")
             introduction = await self._generate_introduction(
                 hypotheses,
                 target_departments,
@@ -194,32 +320,63 @@ class InterviewArchitectAgent(BaseAgent):
         self,
         hypotheses: List[Hypothesis],
         departments: List[str],
+        comprehensive_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Perform comprehensive analysis of hypotheses to identify key themes,
-        priorities, and focus areas for the interview script.
+        Perform comprehensive analysis using ALL available information.
+
+        Analyzes hypotheses in context of document summaries, project information,
+        and all other available data to create a holistic understanding.
 
         Args:
             hypotheses: List of hypotheses to analyze
             departments: Target departments
+            comprehensive_context: All available context (documents, summaries, project info)
 
         Returns:
             Analysis dictionary with themes, priorities, and recommendations
         """
         system_prompt = """You are an expert management consultant analyzing operational
-inefficiencies. Perform a comprehensive analysis of the provided hypotheses to identify:
+inefficiencies. Perform a comprehensive analysis using ALL available information including:
+- Hypotheses about process issues
+- Original document summaries
+- Project context and industry
+- Document metadata
 
-1. Key themes and patterns across the hypotheses
+Identify:
+1. Key themes and patterns across all information
 2. Priority areas that require the deepest investigation
 3. Potential root causes and interconnections between issues
 4. Risk areas that could indicate systemic problems
 5. Specific "Dull, Dirty, Dangerous" work patterns (repetitive, unpleasant, risky tasks)
+6. Insights from document content that may not be captured in hypotheses
 
 Your analysis will guide the creation of a targeted interview script."""
 
-        human_template = """Analyze the following hypotheses and provide a structured analysis:
+        # Build context from all available information
+        context_summary = ""
+        if comprehensive_context:
+            project = comprehensive_context.get('project', {})
+            context_summary = f"""
+CLIENT CONTEXT:
+- Client: {project.get('client_name', 'Unknown')}
+- Industry: {project.get('industry', 'General')}
+- Departments: {', '.join(project.get('target_departments', []))}
 
-HYPOTHESES:
+DOCUMENT ANALYSIS:
+- Total Documents: {comprehensive_context.get('documents_count', 0)}
+- Documents with Summaries: {comprehensive_context.get('summaries_count', 0)}
+- Includes URLs: {comprehensive_context.get('has_urls', False)}
+
+DOCUMENT SUMMARIES:
+{comprehensive_context.get('combined_summaries', 'None available')[:2000]}
+"""
+
+        human_template = """Analyze ALL the following information and provide a structured analysis:
+
+{context_summary}
+
+IDENTIFIED HYPOTHESES:
 {hypotheses}
 
 TARGET DEPARTMENTS: {departments}
@@ -259,6 +416,7 @@ Return ONLY the JSON object."""
 
         response = await self.llm.ainvoke(
             prompt.format_messages(
+                context_summary=context_summary,
                 hypotheses=hypotheses_text,
                 departments=", ".join(departments) if departments else "Not specified",
             )
@@ -1235,3 +1393,424 @@ Return ONLY the JSON array."""
                     question_type="discovery",
                 ),
             ]
+
+    async def _generate_hypotheses_from_documents(
+        self, state: Dict[str, Any]
+    ) -> List[Hypothesis]:
+        """
+        TIER 2: Generate hypotheses using AI when none were found by Hypothesis Generator.
+
+        This is the second tier in the 3-tier hypothesis generation system. It's activated
+        when the Hypothesis Generator Agent (Tier 1) produces no hypotheses from document
+        analysis. This method uses an LLM (Gemini, OpenAI, or Anthropic) to analyze document
+        summaries and infer likely process inefficiencies.
+
+        Workflow:
+        ---------
+        1. Extract document summaries and project context from state
+        2. Load AI prompt template from centralized prompt manager
+        3. Substitute variables (client, industry, departments, summaries) into prompt
+        4. Invoke configured LLM with system role + user prompt
+        5. Parse JSON response into Hypothesis objects
+        6. Return hypotheses for interview generation
+
+        Prompt Source:
+        --------------
+        Prompts are loaded from: config/prompts/interview_architect_prompts.yaml
+        Key: 'hypothesis_generation'
+        This allows non-developers to improve AI hypothesis quality by editing YAML.
+
+        Supported LLMs:
+        ---------------
+        - Google Gemini (default, free tier available)
+        - OpenAI GPT-4/GPT-3.5 (requires API key)
+        - Anthropic Claude (requires API key)
+        Configured in config/settings.py via LLM_PROVIDER setting
+
+        Args:
+            state: Current workflow state containing:
+                   - document_summaries: List of text summaries from all uploaded documents
+                   - project: Client/industry/department information
+
+        Returns:
+            List of AI-generated Hypothesis objects, or empty list if generation fails
+            Each hypothesis includes:
+            - process_area: The business area affected
+            - description: Detailed issue description
+            - evidence: Supporting evidence from documents
+            - confidence_score: 0.0-1.0 (typically 0.5-0.7 for AI-generated)
+            - automation_potential: high/medium/low
+        """
+        try:
+            # Extract document summaries (generated by Ingestion Agent)
+            document_summaries = state.get("document_summaries", [])
+            project_data = state.get("project", {})
+
+            # Safety check: Cannot generate hypotheses without document content
+            if not document_summaries:
+                self.log_info("No document summaries available for AI hypothesis generation")
+                return []
+
+            # ============================================================
+            # LOAD AI PROMPT FROM CENTRALIZED CONFIGURATION
+            # ============================================================
+            # Get singleton instance of PromptManager
+            # Prompts are cached and loaded from config/prompts/*.yaml files
+            prompt_manager = get_prompt_manager()
+
+            # Prepare template variables for prompt substitution
+            # These variables are injected into the prompt template using {variable_name} syntax
+            variables = {
+                'client_name': project_data.get('client_name', 'Unknown'),
+                'target_departments': ', '.join(project_data.get('target_departments', ['All Departments'])),
+                'industry': project_data.get('industry', 'General'),
+                'document_summaries': '\n\n'.join(document_summaries)  # Combine all summaries
+            }
+
+            # Load the full prompt with system role and user message
+            # 'hypothesis_generation' is defined in interview_architect_prompts.yaml
+            full_prompt = prompt_manager.get_full_prompt(
+                agent_name='interview_architect',
+                prompt_key='hypothesis_generation',
+                variables=variables
+            )
+
+            self.log_info("Using AI (Gemini/OpenAI/Anthropic) to generate hypotheses from document summaries")
+
+            # ============================================================
+            # INVOKE LLM WITH STRUCTURED MESSAGES
+            # ============================================================
+            # Use system + human message format for better AI performance
+            # System role sets expertise level and persona
+            # Human message provides specific task with context
+            if full_prompt['system_role']:
+                # Best practice: Use SystemMessage + HumanMessage for chat models
+                from langchain_core.messages import SystemMessage, HumanMessage
+                messages = [
+                    SystemMessage(content=full_prompt['system_role']),  # e.g., "You are an expert consultant..."
+                    HumanMessage(content=full_prompt['user_prompt'])    # e.g., "Analyze these summaries..."
+                ]
+                response = await self.llm.ainvoke(messages)
+            else:
+                # Fallback: Use simple prompt if no system role defined
+                response = await self.llm.ainvoke(full_prompt['user_prompt'])
+
+            content = response.content.strip()
+
+            # ============================================================
+            # EXTRACT JSON FROM LLM RESPONSE
+            # ============================================================
+            # LLMs often wrap JSON in markdown code blocks
+            # Handle both ```json and ``` formats
+            if "```json" in content:
+                # Extract content between ```json and ```
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                # Extract content between ``` and ```
+                content = content.split("```")[1].split("```")[0].strip()
+
+            # Parse JSON array of hypotheses
+            hypotheses_data = json.loads(content)
+
+            # ============================================================
+            # CONVERT JSON TO HYPOTHESIS OBJECTS
+            # ============================================================
+            # Transform raw AI output into structured Hypothesis objects
+            # Provides defaults for missing fields to ensure robustness
+            hypotheses = []
+            for h_data in hypotheses_data:
+                hypothesis = Hypothesis(
+                    process_area=h_data.get("process_area", "Unknown"),
+                    description=h_data.get("description", ""),
+                    evidence=h_data.get("evidence", []),
+                    indicators=h_data.get("indicators", []),
+                    confidence_score=h_data.get("confidence_score", 0.5),  # AI-generated typically 0.5-0.7
+                    automation_potential=h_data.get("automation_potential", "medium"),
+                    task_category=h_data.get("task_category", "automatable"),
+                )
+                hypotheses.append(hypothesis)
+
+            self.log_info(f"Successfully generated {len(hypotheses)} hypotheses using AI")
+            return hypotheses
+
+        except Exception as e:
+            # If AI generation fails (network issue, JSON parse error, etc.),
+            # return empty list and fall back to Tier 3 (generic hypotheses)
+            self.log_error(f"Failed to generate hypotheses from documents: {e}")
+            return []
+
+    def _gather_comprehensive_context(
+        self,
+        state: Dict[str, Any],
+        hypotheses: List[Hypothesis]
+    ) -> Dict[str, Any]:
+        """
+        Gather ALL available information for comprehensive interview generation.
+
+        This method is a KEY ENHANCEMENT that ensures the Interview Architect uses
+        EVERY piece of available information, not just hypotheses. This creates
+        richer, more contextual interview questions that reference actual document
+        content and are appropriate for the client's industry and situation.
+
+        What Gets Collected:
+        --------------------
+        1. DOCUMENTS: Metadata about all uploaded files and URLs
+           - Filename, file type (PDF, DOCX, URL, etc.)
+           - Source type (file vs URL) - helps identify doc vs reality gaps
+           - Processing status and chunk counts
+
+        2. DOCUMENT SUMMARIES: Full text summaries of document content
+           - Combined into single text for AI context
+           - Provides actual process details not captured in hypotheses
+           - Up to 2000 characters included in analysis prompts
+
+        3. PROJECT CONTEXT: Client and business information
+           - Client name, industry, target departments
+           - Description and creation date
+           - Enables industry-appropriate language and terminology
+
+        4. HYPOTHESIS INSIGHTS: Organized hypothesis data
+           - High-confidence hypotheses (>= 0.7)
+           - Grouped by automation potential (high/medium/low)
+           - Process areas covered
+           - Full hypothesis objects with all details
+
+        5. WORKFLOW STATE: Messages and progress information
+           - Workflow messages from previous agents
+           - Helps understand data quality and processing status
+
+        Why This Matters:
+        -----------------
+        Before this enhancement, interview questions were generated from hypotheses only.
+        Now they leverage:
+        - Actual document content → Reference specific processes mentioned
+        - Industry context → Use appropriate terminology
+        - URL vs file distinction → Identify doc vs reality gaps
+        - Project details → Personalized questions
+
+        Example Impact:
+        ---------------
+        OLD (hypothesis-only):
+          "What manual processes slow down your work?"
+
+        NEW (comprehensive context):
+          "The documentation mentions sales orders require manual entry into
+           three different systems. Can you walk me through this process and
+           identify which steps are most time-consuming?"
+
+        Args:
+            state: Current workflow state with all information collected so far
+            hypotheses: List of hypotheses (from any of the 3 tiers)
+
+        Returns:
+            Dictionary with organized context containing:
+            - documents_count: Number of uploaded documents
+            - documents: List of document metadata
+            - summaries_count: Number of document summaries
+            - document_summaries: List of summary texts
+            - combined_summaries: All summaries joined with separators
+            - project: Project metadata (client, industry, departments)
+            - hypotheses_summary: Organized hypothesis insights
+            - hypotheses_full: Complete hypothesis objects
+            - workflow_messages: State messages from workflow
+            - has_urls: Boolean flag indicating if URLs are included
+        """
+        # Extract all data from state
+        documents = state.get("documents", [])
+        document_summaries = state.get("document_summaries", [])
+        project_data = state.get("project", {})
+        messages = state.get("messages", [])
+
+        # ============================================================
+        # ORGANIZE DOCUMENT METADATA
+        # ============================================================
+        # Extract key metadata from each document for context
+        # Distinguishes between uploaded files and web URLs
+        doc_details = []
+        for doc in documents:
+            if isinstance(doc, dict):
+                doc_details.append({
+                    'filename': doc.get('filename', 'Unknown'),
+                    'file_type': doc.get('file_type', 'unknown'),
+                    'source_type': doc.get('source_type', 'file'),  # "file" or "url"
+                    'source_url': doc.get('source_url'),  # URL if source_type is "url"
+                    'processed': doc.get('processed', False),
+                    'chunk_count': doc.get('chunk_count', 0)
+                })
+
+        # ============================================================
+        # COMBINE DOCUMENT SUMMARIES
+        # ============================================================
+        # Join all summaries with clear separators
+        # This combined text is passed to AI analysis for context
+        # Limited to 2000 chars in prompts to fit within token limits
+        combined_summaries = "\n\n---\n\n".join(document_summaries) if document_summaries else ""
+
+        # ============================================================
+        # ORGANIZE PROJECT CONTEXT
+        # ============================================================
+        # Structure project metadata for easy access
+        # This information personalizes interview questions
+        project_context = {
+            'client_name': project_data.get('client_name', 'Unknown Client'),
+            'industry': project_data.get('industry', 'General'),
+            'target_departments': project_data.get('target_departments', []),
+            'description': project_data.get('description', ''),
+            'created_at': project_data.get('created_at', ''),
+        }
+
+        # ============================================================
+        # ORGANIZE HYPOTHESIS INSIGHTS
+        # ============================================================
+        # Create structured summary of hypothesis data
+        # Organizes by confidence and automation potential
+        hypothesis_summary = {
+            'total_count': len(hypotheses),
+            'high_confidence': [h for h in hypotheses if h.confidence_score >= 0.7],  # Focus areas
+            'by_automation_potential': {},  # Grouped by high/medium/low
+            'process_areas': list(set(h.process_area for h in hypotheses))  # Unique areas
+        }
+
+        # Group hypotheses by automation potential (high/medium/low)
+        # This helps prioritize interview focus on high-value automation opportunities
+        for h in hypotheses:
+            potential = h.automation_potential
+            if potential not in hypothesis_summary['by_automation_potential']:
+                hypothesis_summary['by_automation_potential'][potential] = []
+            hypothesis_summary['by_automation_potential'][potential].append(h)
+
+        # ============================================================
+        # RETURN COMPREHENSIVE CONTEXT
+        # ============================================================
+        # This dictionary is passed to _analyze_hypotheses and other methods
+        # Ensures ALL available information is used in interview generation
+        return {
+            'documents_count': len(documents),
+            'documents': doc_details,
+            'summaries_count': len(document_summaries),
+            'document_summaries': document_summaries,  # Full list for detailed analysis
+            'combined_summaries': combined_summaries,  # Combined text for AI context
+            'project': project_context,
+            'hypotheses_summary': hypothesis_summary,
+            'hypotheses_full': hypotheses,  # Complete hypothesis objects
+            'workflow_messages': messages,
+            'has_urls': any(d.get('source_type') == 'url' for d in documents if isinstance(d, dict)),  # URL flag
+        }
+
+    def _get_generic_hypotheses(self) -> List[Hypothesis]:
+        """
+        TIER 3: Return generic hypotheses as a last resort fallback.
+
+        This is the final tier in the 3-tier hypothesis generation system. It's activated
+        when BOTH Tier 1 (Hypothesis Generator) and Tier 2 (AI generation) fail to produce
+        hypotheses. This ensures the workflow NEVER fails completely - even in worst-case
+        scenarios, a meaningful interview can still be conducted.
+
+        Why Generic Hypotheses?
+        -----------------------
+        These represent UNIVERSAL process inefficiencies found in almost all organizations:
+        - Manual data entry and documentation
+        - Communication silos
+        - Approval bottlenecks
+        - Manual reporting
+
+        These patterns are so common that even without any document analysis, they provide
+        a solid foundation for discovering real issues during stakeholder interviews.
+
+        Hypothesis Characteristics:
+        --------------------------
+        - Confidence Score: 0.6 (lower than document-based or AI-generated)
+        - Evidence: Generic patterns, not document-specific
+        - Automation Potential: Based on industry best practices
+        - Process Areas: Cover major operational categories
+
+        When Is This Used?
+        ------------------
+        This tier is activated only when:
+        1. No documents were uploaded OR Hypothesis Generator failed (Tier 1 fails)
+        2. AND AI generation failed due to:
+           - No document summaries available
+           - LLM API error (network, auth, rate limit)
+           - JSON parsing failure from LLM response
+
+        Interview Quality:
+        -----------------
+        Even with generic hypotheses, the interview will still be valuable because:
+        - Questions probe for common pain points
+        - Discovery questions find issues not in hypotheses
+        - Human interviewers can adapt based on responses
+        - Stakeholders often reveal real issues when prompted about common patterns
+
+        Future Enhancement:
+        -------------------
+        Could add industry-specific generic hypotheses:
+        - Manufacturing: Equipment downtime tracking, quality control
+        - Healthcare: Patient intake, insurance verification
+        - Finance: Reconciliation, compliance reporting
+        Configure via industry setting in project metadata.
+
+        Returns:
+            List of 4 generic Hypothesis objects covering common inefficiency patterns
+        """
+        return [
+            # ============================================================
+            # HYPOTHESIS 1: Data Entry and Documentation
+            # ============================================================
+            # RATIONALE: Manual data entry is one of the most common sources
+            # of inefficiency and error across all industries
+            # AUTOMATION POTENTIAL: High - RPA, OCR, and form automation
+            Hypothesis(
+                process_area="Data Entry and Documentation",
+                description="Manual data entry and repetitive documentation tasks consume significant time and are prone to errors",
+                evidence=["Common pattern in most organizations"],  # Generic evidence
+                indicators=["manual", "data entry", "documentation", "repetitive"],
+                confidence_score=0.6,  # Lower than document-based (0.7-0.9) or AI (0.5-0.7)
+                automation_potential="high",  # RPA, OCR, automated forms
+                task_category="automatable",
+            ),
+
+            # ============================================================
+            # HYPOTHESIS 2: Communication and Coordination
+            # ============================================================
+            # RATIONALE: Information silos are a universal organizational challenge
+            # AUTOMATION POTENTIAL: Medium - workflow automation, notifications
+            Hypothesis(
+                process_area="Communication and Coordination",
+                description="Information silos and inefficient communication channels cause delays and rework",
+                evidence=["Typical organizational challenge"],
+                indicators=["communication", "coordination", "delays", "silos"],
+                confidence_score=0.6,
+                automation_potential="medium",  # Workflow tools, notifications, integrations
+                task_category="partially_automatable",  # Human judgment still needed
+            ),
+
+            # ============================================================
+            # HYPOTHESIS 3: Approval and Review Processes
+            # ============================================================
+            # RATIONALE: Multi-step approvals are common bottlenecks
+            # AUTOMATION POTENTIAL: High - workflow automation, rule-based routing
+            Hypothesis(
+                process_area="Approval and Review Processes",
+                description="Multi-step approval processes with manual routing slow down operations",
+                evidence=["Common workflow bottleneck"],
+                indicators=["approval", "review", "bottleneck", "delays"],
+                confidence_score=0.6,
+                automation_potential="high",  # Workflow automation, automated routing
+                task_category="automatable",
+            ),
+
+            # ============================================================
+            # HYPOTHESIS 4: Report Generation
+            # ============================================================
+            # RATIONALE: Manual reporting is time-consuming and error-prone
+            # AUTOMATION POTENTIAL: High - BI tools, scheduled reports, dashboards
+            Hypothesis(
+                process_area="Report Generation",
+                description="Manual report compilation and distribution takes valuable time from strategic work",
+                evidence=["Frequently reported pain point"],
+                indicators=["reports", "manual", "compilation", "time-consuming"],
+                confidence_score=0.6,
+                automation_potential="high",  # BI tools, automated dashboards
+                task_category="automatable",
+            ),
+        ]

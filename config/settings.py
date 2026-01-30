@@ -81,14 +81,13 @@ class Settings(BaseSettings):
     AGENT_CONFIG_PATH: str = Field(default="config/agents.yaml")
 
     # =========================================================================
-    # Vector Database (Pinecone)
+    # Vector Database (ChromaDB)
     # =========================================================================
-    # Pinecone is used for semantic search over document embeddings.
-    # Get your API key from https://www.pinecone.io/
+    # ChromaDB is used for semantic search over document embeddings.
+    # Completely free and open-source, no API keys required.
 
-    PINECONE_API_KEY: Optional[str] = Field(default=None)
-    PINECONE_ENVIRONMENT: str = Field(default="us-east-1")  # Your Pinecone region
-    PINECONE_INDEX_NAME: str = Field(default="apic-knowledge")  # Index for storing vectors
+    CHROMA_PERSIST_DIR: str = Field(default="./chroma_db")  # Directory for ChromaDB storage
+    CHROMA_COLLECTION_NAME: str = Field(default="apic-knowledge")  # Collection for storing vectors
 
     # =========================================================================
     # PostgreSQL Database
