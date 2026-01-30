@@ -9,7 +9,7 @@ from datetime import datetime
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent
 from src.models.schemas import (
     Hypothesis,
     InterviewQuestion,
