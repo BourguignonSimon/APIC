@@ -13,7 +13,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
 from src.agents.interview import InterviewArchitectAgent
-from src.models.schemas import Hypothesis, InterviewScript, CustomerContext
+from src.models.schemas import Hypothesis, InterviewScript
 
 
 class TestInterviewArchitectAgent:

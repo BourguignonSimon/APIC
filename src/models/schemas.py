@@ -124,38 +124,6 @@ class Hypothesis(BaseModel):
 # Node 3: Interview Architect Models
 # ============================================================================
 
-class CustomerContext(BaseModel):
-    """Customer context derived from ingested data analysis."""
-    business_overview: str = Field(
-        default="",
-        description="Overview of the customer's business and industry"
-    )
-    organization_structure: str = Field(
-        default="",
-        description="Summary of relevant organizational structure"
-    )
-    current_challenges: List[str] = Field(
-        default_factory=list,
-        description="Key challenges identified from data analysis"
-    )
-    key_processes: List[str] = Field(
-        default_factory=list,
-        description="Main processes identified for review"
-    )
-    stakeholders: List[str] = Field(
-        default_factory=list,
-        description="Key stakeholders identified from documents"
-    )
-    industry_context: str = Field(
-        default="",
-        description="Industry-specific context and considerations"
-    )
-    data_sources_summary: str = Field(
-        default="",
-        description="Summary of analyzed data sources"
-    )
-
-
 class DiagnosticLead(BaseModel):
     """A lead/hypothesis to be validated during the interview."""
     hypothesis_id: str = Field(..., description="Reference to the hypothesis being validated")
@@ -199,10 +167,34 @@ class InterviewScript(BaseModel):
         default_factory=list,
         description="Recommended roles to interview"
     )
-    # Customer Context Section
-    customer_context: Optional[CustomerContext] = Field(
-        default=None,
-        description="Customer context derived from data analysis"
+    # Customer Context fields (flattened from CustomerContext)
+    customer_business_overview: str = Field(
+        default="",
+        description="Overview of the customer's business and industry"
+    )
+    customer_organization_structure: str = Field(
+        default="",
+        description="Summary of relevant organizational structure"
+    )
+    customer_challenges: List[str] = Field(
+        default_factory=list,
+        description="Key challenges identified from data analysis"
+    )
+    customer_key_processes: List[str] = Field(
+        default_factory=list,
+        description="Main processes identified for review"
+    )
+    customer_stakeholders: List[str] = Field(
+        default_factory=list,
+        description="Key stakeholders identified from documents"
+    )
+    customer_industry_context: str = Field(
+        default="",
+        description="Industry-specific context and considerations"
+    )
+    customer_data_sources_summary: str = Field(
+        default="",
+        description="Summary of analyzed data sources"
     )
     # Diagnostic Form - Leads to validate
     diagnostic_leads: List[DiagnosticLead] = Field(
@@ -286,16 +278,6 @@ class SolutionRecommendation(BaseModel):
 # Node 6: Report Models
 # ============================================================================
 
-class ExecutiveSummary(BaseModel):
-    """Executive summary section of the report."""
-    overview: str
-    key_findings: List[str]
-    top_recommendations: List[str]
-    total_potential_savings: float
-    total_implementation_cost: float
-    overall_roi_percentage: float
-
-
 class CurrentVsFutureState(BaseModel):
     """Comparison table entry."""
     process_area: str
@@ -309,13 +291,20 @@ class Report(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
     title: str
-    executive_summary: ExecutiveSummary
-    hypotheses: List[Hypothesis]
-    interview_insights: List[str]
-    gap_analyses: List[GapAnalysisItem]
-    solutions: List[AnalysisResult]
-    current_vs_future: List[CurrentVsFutureState]
-    implementation_roadmap: List[Dict[str, Any]]
+    # Executive summary fields (flattened from ExecutiveSummary)
+    summary_overview: str = Field(default="", description="Executive summary overview")
+    key_findings: List[str] = Field(default_factory=list, description="Key findings from analysis")
+    top_recommendations: List[str] = Field(default_factory=list, description="Top recommendations")
+    total_potential_savings: float = Field(default=0.0, description="Total potential annual savings")
+    total_implementation_cost: float = Field(default=0.0, description="Total implementation cost estimate")
+    overall_roi_percentage: float = Field(default=0.0, description="Overall ROI percentage")
+    # Analysis results
+    hypotheses: List[Hypothesis] = Field(default_factory=list)
+    interview_insights: List[str] = Field(default_factory=list)
+    gap_analyses: List[GapAnalysisItem] = Field(default_factory=list)
+    solutions: List[AnalysisResult] = Field(default_factory=list)
+    current_vs_future: List[CurrentVsFutureState] = Field(default_factory=list)
+    implementation_roadmap: List[Dict[str, Any]] = Field(default_factory=list)
     appendix: Optional[Dict[str, Any]] = None
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
