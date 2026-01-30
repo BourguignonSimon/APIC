@@ -2024,8 +2024,8 @@ def render_results_tab(project_id: str):
         st.markdown("<br>", unsafe_allow_html=True)
 
         for sol in solutions_response["solutions"]:
-            severity = sol.get('pain_point_severity', 'medium').lower()
-            priority_class = "priority-high" if severity == "high" else "priority-medium" if severity == "medium" else "priority-low"
+            priority = sol.get('pain_point_priority', 'medium').lower()
+            priority_class = "priority-high" if priority == "high" else "priority-medium" if priority == "medium" else "priority-low"
 
             tech_stack = sol.get('tech_stack_recommendation', [])
             tech_text = ', '.join(tech_stack) if tech_stack else 'N/A'
@@ -2034,13 +2034,13 @@ def render_results_tab(project_id: str):
             <div class="analysis-card">
                 <div class="analysis-card-header">
                     <span class="analysis-card-title">💡 {sol.get('process_step', 'Unknown')}</span>
-                    <span class="priority-badge {priority_class}">{severity} priority</span>
+                    <span class="priority-badge {priority_class}">{priority} priority</span>
                 </div>
                 <div style="display: grid; gap: 0.75rem;">
                     <div><strong>🔧 Solution:</strong> {sol.get('proposed_solution', 'N/A')}</div>
                     <div><strong>🛠️ Tech Stack:</strong> {tech_text}</div>
                     <div><strong>📈 ROI:</strong> {sol.get('estimated_roi_hours', 0)} hours/month saved</div>
-                    <div><strong>⚙️ Complexity:</strong> {sol.get('implementation_complexity', 'N/A')}</div>
+                    <div><strong>⚙️ Implementation Priority:</strong> {sol.get('implementation_priority', 'N/A')}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)

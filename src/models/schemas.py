@@ -29,16 +29,8 @@ class ProjectStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class Severity(str, Enum):
-    """Severity level for pain points."""
-    LOW = "Low"
-    MEDIUM = "Medium"
-    HIGH = "High"
-    CRITICAL = "Critical"
-
-
-class Complexity(str, Enum):
-    """Implementation complexity level."""
+class Priority(str, Enum):
+    """Priority level for pain points and implementation complexity."""
     LOW = "Low"
     MEDIUM = "Medium"
     HIGH = "High"
@@ -258,14 +250,14 @@ class AnalysisResult(BaseModel):
     """Full analysis result combining gap and solution (Output of Node 4/5)."""
     process_step: str
     observed_behavior: str
-    pain_point_severity: Severity
+    pain_point_priority: Priority
     proposed_solution: str
     tech_stack_recommendation: List[str]
     estimated_roi_hours: int = Field(
         ...,
         description="Estimated hours saved per month"
     )
-    implementation_complexity: Complexity = Complexity.MEDIUM
+    implementation_priority: Priority = Priority.MEDIUM
     priority_score: float = Field(
         default=0.0,
         ge=0.0,

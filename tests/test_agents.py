@@ -16,8 +16,6 @@ from src.models.schemas import (
     InterviewScript,
     GapAnalysisItem,
     AnalysisResult,
-    Severity,
-    Complexity,
     TaskCategory,
     ProjectStatus,
 )

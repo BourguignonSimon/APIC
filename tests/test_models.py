@@ -14,8 +14,7 @@ from src.models.schemas import (
     InterviewScript,
     GapAnalysisItem,
     AnalysisResult,
-    Severity,
-    Complexity,
+    Priority,
     TaskCategory,
     ProjectStatus,
 )
@@ -143,14 +142,14 @@ class TestGapAnalysisModels:
         result = AnalysisResult(
             process_step="Invoice Processing",
             observed_behavior="Manual data entry",
-            pain_point_severity=Severity.HIGH,
+            pain_point_priority=Priority.HIGH,
             proposed_solution="Implement OCR and RPA",
             tech_stack_recommendation=["UiPath", "Azure Form Recognizer"],
             estimated_roi_hours=40,
-            implementation_complexity=Complexity.MEDIUM,
+            implementation_priority=Priority.MEDIUM,
         )
 
-        assert result.pain_point_severity == Severity.HIGH
+        assert result.pain_point_priority == Priority.HIGH
         assert result.estimated_roi_hours == 40
         assert len(result.tech_stack_recommendation) == 2
 
@@ -158,15 +157,11 @@ class TestGapAnalysisModels:
 class TestEnums:
     """Test enum values."""
 
-    def test_severity_enum(self):
-        """Test Severity enum."""
-        assert Severity.LOW.value == "Low"
-        assert Severity.CRITICAL.value == "Critical"
-
-    def test_complexity_enum(self):
-        """Test Complexity enum."""
-        assert Complexity.LOW.value == "Low"
-        assert Complexity.HIGH.value == "High"
+    def test_priority_enum(self):
+        """Test Priority enum."""
+        assert Priority.LOW.value == "Low"
+        assert Priority.MEDIUM.value == "Medium"
+        assert Priority.HIGH.value == "High"
 
     def test_task_category_enum(self):
         """Test TaskCategory enum."""
