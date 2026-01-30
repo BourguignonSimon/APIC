@@ -4,49 +4,14 @@ Analyzes ingested data to identify suspected inefficiencies.
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-from .base import BaseAgent, get_llm
-from .ingestion import IngestionAgent
-from src.models.schemas import Hypothesis, GraphState
-from config.settings import settings
-
-
-# Keywords that indicate potential inefficiencies
-INEFFICIENCY_INDICATORS = {
-    "manual_process": [
-        "manual", "manually", "by hand", "paper", "physical copy",
-        "print", "printed", "handwritten", "fill out", "fill in"
-    ],
-    "communication_gaps": [
-        "email", "phone call", "follow up", "remind", "waiting for",
-        "unclear", "miscommunication", "lost", "missing information"
-    ],
-    "data_silos": [
-        "spreadsheet", "excel", "separate system", "copy paste",
-        "re-enter", "duplicate", "different database", "no integration"
-    ],
-    "delays": [
-        "delay", "delayed", "slow", "takes time", "wait", "waiting",
-        "backlog", "bottleneck", "queue", "pending"
-    ],
-    "errors": [
-        "error", "mistake", "incorrect", "wrong", "fix", "correction",
-        "rework", "redo", "quality issue", "defect"
-    ],
-    "approvals": [
-        "approval", "approve", "sign off", "signature", "authorize",
-        "permission", "escalate", "manager review"
-    ],
-    "hidden_factories": [
-        "workaround", "unofficial", "shadow", "personal process",
-        "my own way", "work around", "bypass", "shortcut"
-    ],
-}
+from .base import BaseAgent
+from src.models.schemas import Hypothesis
 
 
 class HypothesisGeneratorAgent(BaseAgent):
@@ -62,7 +27,6 @@ class HypothesisGeneratorAgent(BaseAgent):
 
     def __init__(self, **kwargs):
         super().__init__(name="HypothesisGenerator", **kwargs)
-        self.ingestion_agent = IngestionAgent()
         self.output_parser = JsonOutputParser()
 
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -78,7 +42,6 @@ class HypothesisGeneratorAgent(BaseAgent):
         self.log_info("Starting hypothesis generation")
 
         try:
-            project_id = state.get("project_id")
             document_summaries = state.get("document_summaries", [])
 
             if not document_summaries:
@@ -91,22 +54,11 @@ class HypothesisGeneratorAgent(BaseAgent):
             # Combine summaries for analysis
             combined_summaries = "\n\n---\n\n".join(document_summaries)
 
-            # Query vector DB for additional context if available
-            additional_context = await self._query_for_inefficiency_patterns(
-                project_id
-            )
-
             # Generate hypotheses using LLM
-            hypotheses = await self._generate_hypotheses(
-                combined_summaries,
-                additional_context,
-            )
+            hypotheses = await self._generate_hypotheses(combined_summaries)
 
-            # Validate and enhance hypotheses
-            validated_hypotheses = await self._validate_hypotheses(
-                hypotheses,
-                project_id,
-            )
+            # Filter and sort hypotheses
+            validated_hypotheses = self._validate_hypotheses(hypotheses)
 
             # Update state
             state["hypotheses"] = [h.model_dump() for h in validated_hypotheses]
@@ -125,54 +77,19 @@ class HypothesisGeneratorAgent(BaseAgent):
             state["hypothesis_generation_complete"] = False
             return state
 
-    async def _query_for_inefficiency_patterns(
-        self,
-        project_id: str,
-    ) -> str:
-        """
-        Query vector DB for content related to inefficiency patterns.
-
-        Args:
-            project_id: Project ID for namespace
-
-        Returns:
-            Relevant context from vector DB
-        """
-        namespace = f"client_{project_id}"
-        context_parts = []
-
-        # Query for each category of inefficiency
-        for category, keywords in INEFFICIENCY_INDICATORS.items():
-            query = f"Find processes involving: {', '.join(keywords[:5])}"
-            try:
-                results = await self.ingestion_agent.query_knowledge_base(
-                    query=query,
-                    namespace=namespace,
-                    top_k=3,
-                )
-                for doc in results:
-                    context_parts.append(f"[{category}] {doc.page_content}")
-            except Exception as e:
-                self.log_debug(f"Query failed for {category}: {e}")
-
-        return "\n\n".join(context_parts) if context_parts else ""
-
     async def _generate_hypotheses(
         self,
         summaries: str,
-        additional_context: str,
     ) -> List[Hypothesis]:
         """
         Use LLM to generate hypotheses from document analysis.
 
         Args:
             summaries: Combined document summaries
-            additional_context: Additional context from vector search
 
         Returns:
             List of generated hypotheses
         """
-        # Get configurable prompts or use defaults
         default_system = """You are an expert management consultant specializing in
             process improvement and operational efficiency. Your task is to analyze
             corporate documents and identify potential areas of inefficiency.
@@ -201,9 +118,6 @@ class HypothesisGeneratorAgent(BaseAgent):
             DOCUMENT SUMMARIES:
             {summaries}
 
-            ADDITIONAL CONTEXT (patterns found in documents):
-            {context}
-
             Generate a JSON array of hypotheses. Each hypothesis should have:
             - process_area: string
             - description: string
@@ -224,7 +138,6 @@ class HypothesisGeneratorAgent(BaseAgent):
 
         formatted_prompt = prompt.format_messages(
             summaries=summaries,
-            context=additional_context or "No additional patterns found",
         )
 
         response = await self.llm.ainvoke(formatted_prompt)
@@ -272,54 +185,20 @@ class HypothesisGeneratorAgent(BaseAgent):
                 )
             ]
 
-    async def _validate_hypotheses(
+    def _validate_hypotheses(
         self,
         hypotheses: List[Hypothesis],
-        project_id: str,
     ) -> List[Hypothesis]:
         """
-        Validate and enhance hypotheses with additional context.
+        Filter and sort hypotheses by confidence.
 
         Args:
             hypotheses: List of generated hypotheses
-            project_id: Project ID for vector search
 
         Returns:
-            Validated and enhanced hypotheses
+            Filtered and sorted hypotheses
         """
-        validated = []
-        namespace = f"client_{project_id}"
-
-        for hypothesis in hypotheses:
-            # Skip hypotheses with very low confidence
-            if hypothesis.confidence < 0.2:
-                continue
-
-            # Try to find additional supporting evidence
-            try:
-                results = await self.ingestion_agent.query_knowledge_base(
-                    query=hypothesis.description,
-                    namespace=namespace,
-                    top_k=2,
-                )
-
-                if results:
-                    # Add additional evidence
-                    for doc in results:
-                        if len(doc.page_content) > 50:
-                            hypothesis.evidence.append(
-                                doc.page_content[:200] + "..."
-                            )
-
-                    # Boost confidence if we found supporting evidence
-                    hypothesis.confidence = min(1.0, hypothesis.confidence + 0.1)
-
-            except Exception as e:
-                self.log_debug(f"Could not find additional evidence: {e}")
-
-            validated.append(hypothesis)
-
-        # Sort by confidence
+        # Filter low confidence hypotheses and sort by confidence
+        validated = [h for h in hypotheses if h.confidence >= 0.2]
         validated.sort(key=lambda h: h.confidence, reverse=True)
-
         return validated
