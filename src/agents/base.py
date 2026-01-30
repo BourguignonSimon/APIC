@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 
 from langchain_core.language_models import BaseChatModel
 
-from config.agent_config import AgentConfig
+from config.settings import AgentConfig
 from src.services.llm_factory import get_llm
 
 logger = logging.getLogger(__name__)
