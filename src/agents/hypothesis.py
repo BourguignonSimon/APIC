@@ -107,7 +107,6 @@ class HypothesisGeneratorAgent(BaseAgent):
             - The process area affected
             - A clear description of the suspected inefficiency
             - Evidence from the documents (quotes or references)
-            - Keywords/patterns that triggered this hypothesis
             - A confidence score (0.0 to 1.0)
             - A category (manual_process, communication_gap, data_silos, delays, errors, approvals, hidden_factories, general)
             """
@@ -122,7 +121,6 @@ class HypothesisGeneratorAgent(BaseAgent):
             - process_area: string
             - description: string
             - evidence: array of strings (quotes from documents)
-            - indicators: array of strings (keywords that triggered this)
             - confidence: number between 0 and 1
             - category: string
 
@@ -162,7 +160,6 @@ class HypothesisGeneratorAgent(BaseAgent):
                     process_area=h_data.get("process_area", "Unknown"),
                     description=h_data.get("description", ""),
                     evidence=h_data.get("evidence", []),
-                    indicators=h_data.get("indicators", []),
                     confidence=float(h_data.get("confidence", 0.5)),
                     category=h_data.get("category", "general"),
                 )
@@ -179,7 +176,6 @@ class HypothesisGeneratorAgent(BaseAgent):
                     process_area="General Operations",
                     description="Document analysis suggests potential process inefficiencies",
                     evidence=["Unable to parse specific evidence"],
-                    indicators=["analysis_error"],
                     confidence=0.3,
                     category="general",
                 )
