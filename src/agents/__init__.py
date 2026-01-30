@@ -21,7 +21,7 @@ def __getattr__(name):
         from .base import BaseAgent
         return BaseAgent
     elif name == "get_llm":
-        from .base import get_llm
+        from src.services.llm_factory import get_llm
         return get_llm
     elif name == "IngestionAgent":
         from .ingestion import IngestionAgent

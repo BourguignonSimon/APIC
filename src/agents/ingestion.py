@@ -12,7 +12,8 @@ from langchain_core.documents import Document as LCDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 
-from .base import BaseAgent, get_llm, get_embeddings
+from .base import BaseAgent
+from src.services.llm_factory import get_embeddings
 from src.models.schemas import Document, GraphState, ProjectStatus
 from config.settings import settings
 
