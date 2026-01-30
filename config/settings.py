@@ -11,7 +11,7 @@ Pydantic's BaseSettings is used for:
 
 Usage:
     from config.settings import settings
-    api_key = settings.OPENAI_API_KEY
+    api_key = settings.GOOGLE_API_KEY  # Gemini is the default provider
 """
 
 from typing import Optional, Dict
@@ -25,12 +25,8 @@ from pydantic import BaseModel, Field
 
 
 class ModelConfig(BaseModel):
-    """Configuration for LLM model settings"""
+    """Configuration for LLM model settings (uses global provider)"""
 
-    provider: Optional[str] = Field(
-        None, description="LLM provider (openai, anthropic, google)"
-    )
-    model: Optional[str] = Field(None, description="Model name/identifier")
     temperature: Optional[float] = Field(
         None, ge=0.0, le=2.0, description="Temperature for sampling"
     )
@@ -87,8 +83,8 @@ class Settings(BaseSettings):
     # =========================================================================
     # API Keys for LLM Providers
     # =========================================================================
-    # At least one API key should be configured to use the application.
-    # Each provider requires its own API key obtained from their platform.
+    # GOOGLE_API_KEY is required for the default Gemini provider.
+    # Set DEFAULT_LLM_PROVIDER env var to switch to a different provider.
 
     # OpenAI API key - Get from https://platform.openai.com/api-keys
     OPENAI_API_KEY: Optional[str] = Field(default=None)
@@ -103,10 +99,11 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM (Large Language Model) Configuration
     # =========================================================================
-    # Settings that control which AI model is used and how it behaves
+    # Gemini is the default provider. Switch globally via DEFAULT_LLM_PROVIDER env var.
 
-    # Default provider: "openai", "anthropic", or "google"
-    DEFAULT_LLM_PROVIDER: str = Field(default="openai")
+    # Default LLM provider - Set via LLM_PROVIDER env var to switch globally
+    # Supported: "google" (default), "openai", "anthropic"
+    DEFAULT_LLM_PROVIDER: str = Field(default="google")
 
     # Model identifiers for each provider
     OPENAI_MODEL: str = Field(default="gpt-4o")
