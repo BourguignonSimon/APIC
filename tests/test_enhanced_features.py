@@ -28,7 +28,7 @@ class TestEnhancedErrorHandling:
     @pytest.mark.asyncio
     async def test_llm_api_retry_on_rate_limit(self):
         """Test that LLM API calls retry on rate limit errors."""
-        from src.services.llm_retry import LLMRetryHandler
+        from src.services.retry import LLMRetryHandler
 
         handler = LLMRetryHandler(max_retries=3, backoff_factor=0.1)
 
@@ -50,7 +50,7 @@ class TestEnhancedErrorHandling:
     @pytest.mark.asyncio
     async def test_database_connection_retry(self):
         """Test that database operations retry on connection failures."""
-        from src.services.db_retry import DatabaseRetryHandler
+        from src.services.retry import DatabaseRetryHandler
 
         handler = DatabaseRetryHandler(max_retries=3, backoff_factor=0.1)
 
