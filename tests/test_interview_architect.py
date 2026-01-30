@@ -5,7 +5,6 @@ Tests all functionality including:
 - Hypothesis generation (AI fallback)
 - Comprehensive context gathering
 - Interview script generation
-- Prompt management integration
 """
 
 import pytest
@@ -15,7 +14,6 @@ from datetime import datetime
 
 from src.agents.interview import InterviewArchitectAgent
 from src.models.schemas import Hypothesis, InterviewScript, CustomerContext
-from src.utils.prompt_manager import PromptManager
 
 
 class TestInterviewArchitectAgent:
@@ -213,37 +211,6 @@ class TestInterviewArchitectAgent:
         # Should handle error gracefully
         hypotheses = await agent._generate_hypotheses_from_documents(sample_state)
         assert hypotheses == []
-
-    # =========================================================================
-    # Test: Prompt Manager Integration
-    # =========================================================================
-
-    def test_prompt_manager_integration(self):
-        """Test that Interview Architect uses Prompt Manager"""
-        from src.utils.prompt_manager import get_prompt_manager
-
-        pm = get_prompt_manager()
-
-        # Test loading interview architect prompts
-        prompts = pm.load_prompts('interview_architect')
-        assert 'hypothesis_generation' in prompts
-        assert 'hypothesis_analysis' in prompts
-
-        # Test getting specific prompt
-        prompt = pm.get_prompt(
-            'interview_architect',
-            'hypothesis_generation',
-            variables={
-                'client_name': 'Test Corp',
-                'target_departments': 'Sales',
-                'industry': 'Tech',
-                'document_summaries': 'Test summary'
-            }
-        )
-
-        assert 'Test Corp' in prompt
-        assert 'Sales' in prompt
-        assert 'Test summary' in prompt
 
     # =========================================================================
     # Test: Interview Script Generation Flow

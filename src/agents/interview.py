@@ -19,8 +19,58 @@ from src.models.schemas import (
     DiagnosticLead,
 )
 from src.services.interview_script_generator import get_interview_script_generator
-from src.utils.prompt_manager import get_prompt_manager
 from config.settings import settings
+
+
+# =============================================================================
+# Hypothesis Generation Prompt (Tier 2 AI Fallback)
+# =============================================================================
+# Used when Hypothesis Generator returns no hypotheses.
+# Analyzes document summaries to generate process improvement hypotheses.
+
+HYPOTHESIS_GENERATION_SYSTEM_PROMPT = """You are an expert business process consultant with 15+ years of experience analyzing organizational workflows, identifying inefficiencies, and recommending process improvements."""
+
+HYPOTHESIS_GENERATION_USER_PROMPT = """Analyze the following document summaries and identify potential process inefficiencies, automation opportunities, or areas for improvement.
+
+CLIENT INFORMATION:
+- Client Name: {client_name}
+- Target Departments: {target_departments}
+- Industry: {industry}
+
+DOCUMENT SUMMARIES:
+{document_summaries}
+
+YOUR TASK:
+Generate 3-5 hypotheses about potential inefficiencies in the client's processes. Focus on:
+1. Repetitive manual tasks that could be automated
+2. Communication bottlenecks or information silos
+3. Approval delays or multi-step processes
+4. Data entry, documentation, or reporting inefficiencies
+5. Process gaps or workarounds
+
+For each hypothesis, provide:
+- process_area: The specific process or department affected
+- description: Clear, specific description of the suspected inefficiency
+- evidence: Specific quotes or references from the documents (use actual text when available)
+- indicators: Keywords or patterns that triggered this hypothesis
+- confidence_score: Your confidence level (0.0-1.0) that this is a real issue
+- automation_potential: Likelihood this could be automated (high/medium/low)
+- task_category: Classification (automatable/partially_automatable/human_only)
+
+CRITICAL: Return ONLY a valid JSON array with no additional text or explanation.
+
+FORMAT (JSON array only):
+[
+  {{
+    "process_area": "string",
+    "description": "string",
+    "evidence": ["quote1", "quote2"],
+    "indicators": ["keyword1", "keyword2"],
+    "confidence_score": 0.8,
+    "automation_potential": "high",
+    "task_category": "automatable"
+  }}
+]"""
 
 
 
@@ -1405,21 +1455,6 @@ Return ONLY the JSON array."""
         analysis. This method uses an LLM (Gemini, OpenAI, or Anthropic) to analyze document
         summaries and infer likely process inefficiencies.
 
-        Workflow:
-        ---------
-        1. Extract document summaries and project context from state
-        2. Load AI prompt template from centralized prompt manager
-        3. Substitute variables (client, industry, departments, summaries) into prompt
-        4. Invoke configured LLM with system role + user prompt
-        5. Parse JSON response into Hypothesis objects
-        6. Return hypotheses for interview generation
-
-        Prompt Source:
-        --------------
-        Prompts are loaded from: config/prompts/interview_architect_prompts.yaml
-        Key: 'hypothesis_generation'
-        This allows non-developers to improve AI hypothesis quality by editing YAML.
-
         Supported LLMs:
         ---------------
         - Google Gemini (default, free tier available)
@@ -1451,49 +1486,23 @@ Return ONLY the JSON array."""
                 self.log_info("No document summaries available for AI hypothesis generation")
                 return []
 
-            # ============================================================
-            # LOAD AI PROMPT FROM CENTRALIZED CONFIGURATION
-            # ============================================================
-            # Get singleton instance of PromptManager
-            # Prompts are cached and loaded from config/prompts/*.yaml files
-            prompt_manager = get_prompt_manager()
-
-            # Prepare template variables for prompt substitution
-            # These variables are injected into the prompt template using {variable_name} syntax
-            variables = {
-                'client_name': project_data.get('client_name', 'Unknown'),
-                'target_departments': ', '.join(project_data.get('target_departments', ['All Departments'])),
-                'industry': project_data.get('industry', 'General'),
-                'document_summaries': '\n\n'.join(document_summaries)  # Combine all summaries
-            }
-
-            # Load the full prompt with system role and user message
-            # 'hypothesis_generation' is defined in interview_architect_prompts.yaml
-            full_prompt = prompt_manager.get_full_prompt(
-                agent_name='interview_architect',
-                prompt_key='hypothesis_generation',
-                variables=variables
+            # Format the user prompt with variables
+            user_prompt = HYPOTHESIS_GENERATION_USER_PROMPT.format(
+                client_name=project_data.get('client_name', 'Unknown'),
+                target_departments=', '.join(project_data.get('target_departments', ['All Departments'])),
+                industry=project_data.get('industry', 'General'),
+                document_summaries='\n\n'.join(document_summaries)
             )
 
             self.log_info("Using AI (Gemini/OpenAI/Anthropic) to generate hypotheses from document summaries")
 
-            # ============================================================
-            # INVOKE LLM WITH STRUCTURED MESSAGES
-            # ============================================================
-            # Use system + human message format for better AI performance
-            # System role sets expertise level and persona
-            # Human message provides specific task with context
-            if full_prompt['system_role']:
-                # Best practice: Use SystemMessage + HumanMessage for chat models
-                from langchain_core.messages import SystemMessage, HumanMessage
-                messages = [
-                    SystemMessage(content=full_prompt['system_role']),  # e.g., "You are an expert consultant..."
-                    HumanMessage(content=full_prompt['user_prompt'])    # e.g., "Analyze these summaries..."
-                ]
-                response = await self.llm.ainvoke(messages)
-            else:
-                # Fallback: Use simple prompt if no system role defined
-                response = await self.llm.ainvoke(full_prompt['user_prompt'])
+            # Use SystemMessage + HumanMessage for chat models
+            from langchain_core.messages import SystemMessage, HumanMessage
+            messages = [
+                SystemMessage(content=HYPOTHESIS_GENERATION_SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt)
+            ]
+            response = await self.llm.ainvoke(messages)
 
             content = response.content.strip()
 
