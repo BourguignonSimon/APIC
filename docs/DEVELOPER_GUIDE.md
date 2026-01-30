@@ -125,10 +125,8 @@ APIC/
 ├── Makefile                 # Development commands
 ├── Dockerfile               # Multi-stage Docker build
 ├── docker-compose.yml       # Service orchestration
-├── requirements.txt         # All dependencies
-├── requirements-core.txt    # Production dependencies
-├── requirements-dev.txt     # Development dependencies
-└── requirements-optional.txt # Optional features
+├── requirements.txt         # Production dependencies
+└── requirements-dev.txt     # Development dependencies (includes production)
 ```
 
 ---
