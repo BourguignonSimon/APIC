@@ -11,7 +11,7 @@ import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, extract_json
 from src.models.schemas import (
     Report,
     ExecutiveSummary,
@@ -50,13 +50,10 @@ class ReportingAgent(BaseAgent):
         Returns:
             Updated state with final report
         """
-        self.log_info("Starting report generation")
-
         try:
             project_id = state.get("project_id")
             project = state.get("project", {})
 
-            # Gather all components
             hypotheses = [
                 Hypothesis(**h) if isinstance(h, dict) else h
                 for h in state.get("hypotheses", [])
@@ -74,25 +71,20 @@ class ReportingAgent(BaseAgent):
                 for r in state.get("solution_recommendations", [])
             ]
 
-            # Generate executive summary
             executive_summary = await self._generate_executive_summary(
                 hypotheses, gaps, solutions, recommendations
             )
 
-            # Generate current vs future state
             current_vs_future = await self._generate_current_vs_future(
                 gaps, solutions
             )
 
-            # Generate implementation roadmap
             roadmap = await self._generate_roadmap(recommendations)
 
-            # Extract interview insights
             interview_insights = await self._extract_insights(
                 state.get("transcript", "")
             )
 
-            # Create the report
             report = Report(
                 id=str(uuid.uuid4()),
                 project_id=project_id,
@@ -114,23 +106,18 @@ class ReportingAgent(BaseAgent):
                 generated_at=datetime.utcnow(),
             )
 
-            # Generate PDF
             pdf_path = await self._generate_pdf(report, project)
 
-            # Update state
             state["report"] = report.model_dump()
             state["report_complete"] = True
             state["report_pdf_path"] = pdf_path
             state["current_node"] = "reporting"
-            state["messages"].append(
-                f"Report generated successfully. PDF available at: {pdf_path}"
-            )
+            state["messages"].append(f"Report generated: {pdf_path}")
 
-            self.log_info("Report generation complete")
             return state
 
         except Exception as e:
-            self.log_error("Error generating report", e)
+            self.log_error("Report generation failed", e)
             state["errors"].append(f"Report generation error: {str(e)}")
             state["report_complete"] = False
             return state
@@ -381,14 +368,7 @@ class ReportingAgent(BaseAgent):
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            insights = json.loads(content)
+            insights = extract_json(response.content)
             return insights if isinstance(insights, list) else [response.content]
         except Exception:
             return [response.content]
@@ -521,8 +501,5 @@ class ReportingAgent(BaseAgent):
                 ))
             content.append(Spacer(1, 12))
 
-        # Build PDF
         doc.build(content)
-
-        self.log_info(f"PDF report generated: {filepath}")
         return filepath

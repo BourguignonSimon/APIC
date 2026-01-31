@@ -9,7 +9,7 @@ import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, extract_json
 from src.models.schemas import (
     GapAnalysisItem,
     AnalysisResult,
@@ -91,38 +91,28 @@ class SolutionArchitectAgent(BaseAgent):
         Returns:
             Updated state with solution recommendations
         """
-        self.log_info("Starting solution architecture")
-
         try:
-            project_id = state.get("project_id")
             gaps_data = state.get("gap_analyses", [])
 
             if not gaps_data:
-                self.log_info("No gaps to generate solutions for")
                 state["solutions"] = []
                 state["solutioning_complete"] = True
                 state["messages"].append("No gaps available for solutioning")
                 return state
 
-            # Convert gaps to objects
             gaps = [
                 GapAnalysisItem(**g) if isinstance(g, dict) else g
                 for g in gaps_data
             ]
 
-            # Generate solutions for each gap
             solutions = await self._generate_solutions(gaps)
-
-            # Calculate priority scores
             prioritized_solutions = self._calculate_priority(solutions)
 
-            # Generate detailed recommendations
             detailed_recommendations = await self._generate_detailed_recommendations(
                 prioritized_solutions,
                 gaps,
             )
 
-            # Update state
             state["solutions"] = [s.model_dump() for s in prioritized_solutions]
             state["solution_recommendations"] = [
                 r.model_dump() for r in detailed_recommendations
@@ -130,15 +120,13 @@ class SolutionArchitectAgent(BaseAgent):
             state["solutioning_complete"] = True
             state["current_node"] = "solution"
             state["messages"].append(
-                f"Generated {len(prioritized_solutions)} solution recommendations "
-                f"with estimated total monthly savings"
+                f"Generated {len(prioritized_solutions)} solutions"
             )
 
-            self.log_info(f"Solution architecture complete: {len(prioritized_solutions)} solutions")
             return state
 
         except Exception as e:
-            self.log_error("Error during solutioning", e)
+            self.log_error("Solution generation failed", e)
             state["errors"].append(f"Solutioning error: {str(e)}")
             state["solutioning_complete"] = False
             return state
@@ -211,52 +199,28 @@ class SolutionArchitectAgent(BaseAgent):
             prompt.format_messages(gaps=gaps_text)
         )
 
-        try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+        solutions_data = extract_json(response.content)
 
-            solutions_data = json.loads(content)
+        severity_map = {"Low": Severity.LOW, "High": Severity.HIGH, "Critical": Severity.CRITICAL}
+        complexity_map = {"Low": Complexity.LOW, "High": Complexity.HIGH}
 
-            solutions = []
-            for s_data in solutions_data:
-                # Map severity string to enum
-                severity_str = s_data.get("pain_point_severity", "Medium")
-                severity = Severity.MEDIUM
-                if severity_str == "Low":
-                    severity = Severity.LOW
-                elif severity_str == "High":
-                    severity = Severity.HIGH
-                elif severity_str == "Critical":
-                    severity = Severity.CRITICAL
+        solutions = []
+        for s_data in solutions_data:
+            severity = severity_map.get(s_data.get("pain_point_severity"), Severity.MEDIUM)
+            complexity = complexity_map.get(s_data.get("implementation_complexity"), Complexity.MEDIUM)
 
-                # Map complexity string to enum
-                complexity_str = s_data.get("implementation_complexity", "Medium")
-                complexity = Complexity.MEDIUM
-                if complexity_str == "Low":
-                    complexity = Complexity.LOW
-                elif complexity_str == "High":
-                    complexity = Complexity.HIGH
+            solution = AnalysisResult(
+                process_step=s_data.get("process_step", "Unknown"),
+                observed_behavior=s_data.get("observed_behavior", ""),
+                pain_point_severity=severity,
+                proposed_solution=s_data.get("proposed_solution", ""),
+                tech_stack_recommendation=s_data.get("tech_stack_recommendation", []),
+                estimated_roi_hours=int(s_data.get("estimated_roi_hours", 0)),
+                implementation_complexity=complexity,
+            )
+            solutions.append(solution)
 
-                solution = AnalysisResult(
-                    process_step=s_data.get("process_step", "Unknown"),
-                    observed_behavior=s_data.get("observed_behavior", ""),
-                    pain_point_severity=severity,
-                    proposed_solution=s_data.get("proposed_solution", ""),
-                    tech_stack_recommendation=s_data.get("tech_stack_recommendation", []),
-                    estimated_roi_hours=int(s_data.get("estimated_roi_hours", 0)),
-                    implementation_complexity=complexity,
-                )
-                solutions.append(solution)
-
-            return solutions
-
-        except json.JSONDecodeError as e:
-            self.log_error(f"Failed to parse solutions: {e}")
-            return []
+        return solutions
 
     def _calculate_priority(
         self,

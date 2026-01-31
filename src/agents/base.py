@@ -3,6 +3,7 @@ Base Agent Class
 Provides common functionality for all APIC agents.
 """
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -17,6 +18,28 @@ from config.settings import settings
 from config.agent_config import AgentConfig, ModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json(content: str) -> Any:
+    """
+    Extract JSON from LLM response, handling markdown code blocks.
+
+    Args:
+        content: Raw LLM response content
+
+    Returns:
+        Parsed JSON data
+
+    Raises:
+        json.JSONDecodeError: If content cannot be parsed as JSON
+    """
+    content = content.strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+        content = content.strip()
+    return json.loads(content)
 
 
 def get_llm(
@@ -178,13 +201,6 @@ class BaseAgent(ABC):
 
         self.logger = logging.getLogger(f"apic.agents.{name}")
 
-        # Log configuration info
-        if agent_config:
-            self.log_debug(f"Initialized with custom configuration")
-            if agent_config.model:
-                self.log_debug(
-                    f"Using model: {agent_config.model.provider}/{agent_config.model.model}"
-                )
 
     @abstractmethod
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -201,18 +217,14 @@ class BaseAgent(ABC):
 
     def log_info(self, message: str) -> None:
         """Log an info message."""
-        self.logger.info(f"[{self.name}] {message}")
+        self.logger.info(message)
 
     def log_error(self, message: str, error: Optional[Exception] = None) -> None:
         """Log an error message."""
         if error:
-            self.logger.error(f"[{self.name}] {message}: {error}")
+            self.logger.error(f"{message}: {error}")
         else:
-            self.logger.error(f"[{self.name}] {message}")
-
-    def log_debug(self, message: str) -> None:
-        """Log a debug message."""
-        self.logger.debug(f"[{self.name}] {message}")
+            self.logger.error(message)
 
     def get_prompt(self, prompt_name: str, default: Optional[str] = None) -> Optional[str]:
         """

@@ -10,7 +10,7 @@ import uuid
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, extract_json
 from .ingestion import IngestionAgent
 from src.models.schemas import Hypothesis, GraphState
 from config.settings import settings
@@ -75,52 +75,43 @@ class HypothesisGeneratorAgent(BaseAgent):
         Returns:
             Updated state with generated hypotheses
         """
-        self.log_info("Starting hypothesis generation")
-
         try:
             project_id = state.get("project_id")
             document_summaries = state.get("document_summaries", [])
 
             if not document_summaries:
-                self.log_info("No document summaries available")
                 state["hypotheses"] = []
                 state["hypothesis_generation_complete"] = True
                 state["messages"].append("No documents to analyze for hypotheses")
                 return state
 
-            # Combine summaries for analysis
             combined_summaries = "\n\n---\n\n".join(document_summaries)
 
-            # Query vector DB for additional context if available
             additional_context = await self._query_for_inefficiency_patterns(
                 project_id
             )
 
-            # Generate hypotheses using LLM
             hypotheses = await self._generate_hypotheses(
                 combined_summaries,
                 additional_context,
             )
 
-            # Validate and enhance hypotheses
             validated_hypotheses = await self._validate_hypotheses(
                 hypotheses,
                 project_id,
             )
 
-            # Update state
             state["hypotheses"] = [h.model_dump() for h in validated_hypotheses]
             state["hypothesis_generation_complete"] = True
             state["current_node"] = "hypothesis"
             state["messages"].append(
-                f"Generated {len(validated_hypotheses)} hypotheses about potential inefficiencies"
+                f"Generated {len(validated_hypotheses)} hypotheses"
             )
 
-            self.log_info(f"Generated {len(validated_hypotheses)} hypotheses")
             return state
 
         except Exception as e:
-            self.log_error("Error generating hypotheses", e)
+            self.log_error("Hypothesis generation failed", e)
             state["errors"].append(f"Hypothesis generation error: {str(e)}")
             state["hypothesis_generation_complete"] = False
             return state
@@ -141,7 +132,6 @@ class HypothesisGeneratorAgent(BaseAgent):
         namespace = f"client_{project_id}"
         context_parts = []
 
-        # Query for each category of inefficiency
         for category, keywords in INEFFICIENCY_INDICATORS.items():
             query = f"Find processes involving: {', '.join(keywords[:5])}"
             try:
@@ -152,8 +142,8 @@ class HypothesisGeneratorAgent(BaseAgent):
                 )
                 for doc in results:
                     context_parts.append(f"[{category}] {doc.page_content}")
-            except Exception as e:
-                self.log_debug(f"Query failed for {category}: {e}")
+            except Exception:
+                pass  # Vector DB unavailable, continue without context
 
         return "\n\n".join(context_parts) if context_parts else ""
 
@@ -229,48 +219,22 @@ class HypothesisGeneratorAgent(BaseAgent):
 
         response = await self.llm.ainvoke(formatted_prompt)
 
-        # Parse the response
-        try:
-            # Extract JSON from response
-            content = response.content.strip()
-            if content.startswith("```"):
-                # Remove markdown code blocks
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+        hypotheses_data = extract_json(response.content)
 
-            hypotheses_data = json.loads(content)
+        hypotheses = []
+        for h_data in hypotheses_data:
+            hypothesis = Hypothesis(
+                id=str(uuid.uuid4()),
+                process_area=h_data.get("process_area", "Unknown"),
+                description=h_data.get("description", ""),
+                evidence=h_data.get("evidence", []),
+                indicators=h_data.get("indicators", []),
+                confidence=float(h_data.get("confidence", 0.5)),
+                category=h_data.get("category", "general"),
+            )
+            hypotheses.append(hypothesis)
 
-            hypotheses = []
-            for h_data in hypotheses_data:
-                hypothesis = Hypothesis(
-                    id=str(uuid.uuid4()),
-                    process_area=h_data.get("process_area", "Unknown"),
-                    description=h_data.get("description", ""),
-                    evidence=h_data.get("evidence", []),
-                    indicators=h_data.get("indicators", []),
-                    confidence=float(h_data.get("confidence", 0.5)),
-                    category=h_data.get("category", "general"),
-                )
-                hypotheses.append(hypothesis)
-
-            return hypotheses
-
-        except json.JSONDecodeError as e:
-            self.log_error(f"Failed to parse LLM response as JSON: {e}")
-            # Create a single general hypothesis if parsing fails
-            return [
-                Hypothesis(
-                    id=str(uuid.uuid4()),
-                    process_area="General Operations",
-                    description="Document analysis suggests potential process inefficiencies",
-                    evidence=["Unable to parse specific evidence"],
-                    indicators=["analysis_error"],
-                    confidence=0.3,
-                    category="general",
-                )
-            ]
+        return hypotheses
 
     async def _validate_hypotheses(
         self,
@@ -291,11 +255,9 @@ class HypothesisGeneratorAgent(BaseAgent):
         namespace = f"client_{project_id}"
 
         for hypothesis in hypotheses:
-            # Skip hypotheses with very low confidence
             if hypothesis.confidence < 0.2:
                 continue
 
-            # Try to find additional supporting evidence
             try:
                 results = await self.ingestion_agent.query_knowledge_base(
                     query=hypothesis.description,
@@ -304,22 +266,18 @@ class HypothesisGeneratorAgent(BaseAgent):
                 )
 
                 if results:
-                    # Add additional evidence
                     for doc in results:
                         if len(doc.page_content) > 50:
                             hypothesis.evidence.append(
                                 doc.page_content[:200] + "..."
                             )
-
-                    # Boost confidence if we found supporting evidence
                     hypothesis.confidence = min(1.0, hypothesis.confidence + 0.1)
 
-            except Exception as e:
-                self.log_debug(f"Could not find additional evidence: {e}")
+            except Exception:
+                pass  # Continue without additional evidence
 
             validated.append(hypothesis)
 
-        # Sort by confidence
         validated.sort(key=lambda h: h.confidence, reverse=True)
 
         return validated

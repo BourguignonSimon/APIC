@@ -163,39 +163,27 @@ class ConsultantGraph:
 
     async def _run_ingestion(self, state: WorkflowState) -> WorkflowState:
         """Run the ingestion node."""
-        logger.info("Running ingestion node")
-        result = await self.ingestion_agent.process(dict(state))
-        return result
+        return await self.ingestion_agent.process(dict(state))
 
     async def _run_hypothesis(self, state: WorkflowState) -> WorkflowState:
         """Run the hypothesis generation node."""
-        logger.info("Running hypothesis generation node")
-        result = await self.hypothesis_agent.process(dict(state))
-        return result
+        return await self.hypothesis_agent.process(dict(state))
 
     async def _run_interview(self, state: WorkflowState) -> WorkflowState:
         """Run the interview architect node."""
-        logger.info("Running interview architect node")
-        result = await self.interview_agent.process(dict(state))
-        return result
+        return await self.interview_agent.process(dict(state))
 
     async def _run_gap_analysis(self, state: WorkflowState) -> WorkflowState:
         """Run the gap analysis node."""
-        logger.info("Running gap analysis node")
-        result = await self.gap_analyst.process(dict(state))
-        return result
+        return await self.gap_analyst.process(dict(state))
 
     async def _run_solution(self, state: WorkflowState) -> WorkflowState:
         """Run the solution architect node."""
-        logger.info("Running solution architect node")
-        result = await self.solution_agent.process(dict(state))
-        return result
+        return await self.solution_agent.process(dict(state))
 
     async def _run_reporting(self, state: WorkflowState) -> WorkflowState:
         """Run the reporting engine node."""
-        logger.info("Running reporting engine node")
-        result = await self.reporting_agent.process(dict(state))
-        return result
+        return await self.reporting_agent.process(dict(state))
 
     def _should_wait_for_transcript(self, state: WorkflowState) -> str:
         """
@@ -205,7 +193,6 @@ class ConsultantGraph:
             "wait" if suspended, "continue" if transcript received
         """
         if state.get("is_suspended") and not state.get("transcript_received"):
-            logger.info("Workflow suspended - awaiting interview transcript")
             return "wait"
         return "continue"
 
