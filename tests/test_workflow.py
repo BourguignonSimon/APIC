@@ -1,14 +1,25 @@
 """
 Tests for workflow orchestration and state management.
+
+This module contains all workflow and integration tests including:
+- ConsultantGraph workflow orchestration
+- Workflow factory functions
+- StateManager data persistence
+- GraphState and WorkflowState models
+- Document category support in StateManager
+- Code structure validation tests
 """
 
 import pytest
+import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import uuid
 
 from src.services.workflow import ConsultantGraph, WorkflowState, get_workflow, create_workflow
 from src.services.state_manager import StateManager
 from src.models.schemas import GraphState, ProjectStatus
+
+# Note: fixtures like 'in_memory_db', 'state_manager_with_db' are provided by conftest.py
 
 
 # ============================================================================
@@ -405,3 +416,435 @@ class TestWorkflowState:
         assert state["project_id"] == "test-123"
         assert state["is_suspended"] is False
         assert state["current_node"] == "start"
+
+
+# ============================================================================
+# Test StateManager Document Category Support
+# ============================================================================
+
+class TestStateManagerDocumentCategory:
+    """Test StateManager document methods with category support."""
+
+    def test_add_document_with_category(self, state_manager_with_db):
+        """Test adding a document with a category."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        doc = sm.add_document(
+            project_id=project_id,
+            filename="interview_transcript.txt",
+            file_type="txt",
+            file_size=1500,
+            file_path="/uploads/interview_transcript.txt",
+            category="interview_results",
+        )
+
+        assert doc is not None
+        assert doc["category"] == "interview_results", \
+            f"Document should have category 'interview_results', got '{doc.get('category')}'"
+
+    def test_add_document_without_category_defaults_to_general(self, state_manager_with_db):
+        """Test that adding a document without category defaults to 'general'."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        doc = sm.add_document(
+            project_id=project_id,
+            filename="report.pdf",
+            file_type="pdf",
+            file_size=5000,
+            file_path="/uploads/report.pdf",
+        )
+
+        assert doc is not None
+        assert doc.get("category") == "general", \
+            f"Default category should be 'general', got '{doc.get('category')}'"
+
+    def test_get_project_documents_without_category_filter(self, state_manager_with_db):
+        """Test getting all documents without category filter."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        sm.add_document(
+            project_id=project_id,
+            filename="doc1.pdf",
+            file_type="pdf",
+            file_size=1000,
+            file_path="/uploads/doc1.pdf",
+            category="general",
+        )
+        sm.add_document(
+            project_id=project_id,
+            filename="doc2.txt",
+            file_type="txt",
+            file_size=2000,
+            file_path="/uploads/doc2.txt",
+            category="interview_results",
+        )
+
+        docs = sm.get_project_documents(project_id)
+        assert len(docs) == 2, f"Expected 2 documents, got {len(docs)}"
+
+    def test_get_project_documents_with_category_filter(self, state_manager_with_db):
+        """Test filtering documents by category."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        sm.add_document(
+            project_id=project_id,
+            filename="doc1.pdf",
+            file_type="pdf",
+            file_size=1000,
+            file_path="/uploads/doc1.pdf",
+            category="general",
+        )
+        sm.add_document(
+            project_id=project_id,
+            filename="interview1.txt",
+            file_type="txt",
+            file_size=2000,
+            file_path="/uploads/interview1.txt",
+            category="interview_results",
+        )
+        sm.add_document(
+            project_id=project_id,
+            filename="interview2.txt",
+            file_type="txt",
+            file_size=3000,
+            file_path="/uploads/interview2.txt",
+            category="interview_results",
+        )
+
+        interview_docs = sm.get_project_documents(project_id, category="interview_results")
+
+        assert len(interview_docs) == 2, \
+            f"Expected 2 interview_results documents, got {len(interview_docs)}"
+
+        for doc in interview_docs:
+            assert doc["category"] == "interview_results", \
+                f"All documents should have category 'interview_results', got '{doc['category']}'"
+
+    def test_get_project_documents_returns_category_field(self, state_manager_with_db):
+        """Test that returned documents include category field."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        sm.add_document(
+            project_id=project_id,
+            filename="test.pdf",
+            file_type="pdf",
+            file_size=1000,
+            file_path="/uploads/test.pdf",
+            category="financial",
+        )
+
+        docs = sm.get_project_documents(project_id)
+
+        assert len(docs) == 1
+        assert "category" in docs[0], "Document dict should include 'category' key"
+        assert docs[0]["category"] == "financial"
+
+
+# ============================================================================
+# Test DocumentRecord Model Category Field
+# ============================================================================
+
+class TestDocumentRecordCategory:
+    """Test that DocumentRecord model has category field."""
+
+    def test_document_record_has_category_column(self, in_memory_db):
+        """Test that DocumentRecord model has a category column."""
+        from tests.conftest import DocumentRecord
+        assert hasattr(DocumentRecord, 'category'), \
+            "DocumentRecord model should have a 'category' attribute"
+
+    def test_document_record_category_default_is_general(self, in_memory_db):
+        """Test that category defaults to 'general' when not specified."""
+        from tests.conftest import DocumentRecord
+        engine, Session = in_memory_db
+        session = Session()
+
+        try:
+            doc = DocumentRecord(
+                id=str(uuid.uuid4()),
+                project_id=str(uuid.uuid4()),
+                filename="test.pdf",
+                file_type="pdf",
+                file_size="1024",
+                file_path="/tmp/test.pdf",
+            )
+            session.add(doc)
+            session.commit()
+            session.refresh(doc)
+            assert doc.category == "general", \
+                f"Default category should be 'general', got '{doc.category}'"
+        finally:
+            session.close()
+
+    def test_document_record_can_set_category(self, in_memory_db):
+        """Test that category can be set to a custom value."""
+        from tests.conftest import DocumentRecord
+        engine, Session = in_memory_db
+        session = Session()
+
+        try:
+            doc = DocumentRecord(
+                id=str(uuid.uuid4()),
+                project_id=str(uuid.uuid4()),
+                filename="interview.txt",
+                file_type="txt",
+                file_size="2048",
+                file_path="/tmp/interview.txt",
+                category="interview_results",
+            )
+            session.add(doc)
+            session.commit()
+            session.refresh(doc)
+            assert doc.category == "interview_results", \
+                f"Category should be 'interview_results', got '{doc.category}'"
+        finally:
+            session.close()
+
+
+# ============================================================================
+# Test Code Structure Validation (StateManager)
+# ============================================================================
+
+class TestStateManagerCodeStructure:
+    """Test the actual code changes to StateManager."""
+
+    def test_state_manager_file_has_category_in_document_record(self):
+        """Verify that DocumentRecord model has category column."""
+        state_manager_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "services", "state_manager.py"
+        )
+
+        with open(state_manager_path, 'r') as f:
+            content = f.read()
+
+        assert 'category = Column(' in content, \
+            "DocumentRecord should have 'category' column defined"
+        assert 'default="general"' in content, \
+            "category column should have default='general'"
+
+    def test_add_document_has_category_parameter(self):
+        """Verify that add_document method accepts category parameter."""
+        state_manager_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "services", "state_manager.py"
+        )
+
+        with open(state_manager_path, 'r') as f:
+            content = f.read()
+
+        assert 'def add_document(' in content
+        start = content.find('def add_document(')
+        end = content.find('def ', start + 1)
+        add_document_code = content[start:end]
+
+        assert 'category:' in add_document_code or 'category =' in add_document_code, \
+            "add_document should have 'category' parameter"
+        assert '"category": doc.category' in add_document_code, \
+            "add_document should return category in result dict"
+
+    def test_get_project_documents_has_category_filter(self):
+        """Verify that get_project_documents supports category filter."""
+        state_manager_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "services", "state_manager.py"
+        )
+
+        with open(state_manager_path, 'r') as f:
+            content = f.read()
+
+        start = content.find('def get_project_documents(')
+        end = content.find('def ', start + 1)
+        get_docs_code = content[start:end]
+
+        assert 'category' in get_docs_code, \
+            "get_project_documents should have 'category' parameter"
+        assert 'filter_by(category=' in get_docs_code or 'if category' in get_docs_code, \
+            "get_project_documents should filter by category"
+        assert '"category": d.category' in get_docs_code, \
+            "get_project_documents should return category in result"
+
+
+# ============================================================================
+# Test Code Structure Validation (Database Schema)
+# ============================================================================
+
+class TestDatabaseSchemaStructure:
+    """Test that database schema file includes category column."""
+
+    def test_init_schema_has_category_column(self):
+        """Verify that init_schema.sql has category column."""
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts", "init_schema.sql"
+        )
+
+        with open(schema_path, 'r') as f:
+            content = f.read()
+
+        assert 'category VARCHAR(50)' in content, \
+            "documents table should have category column"
+        assert "DEFAULT 'general'" in content, \
+            "category column should have DEFAULT 'general'"
+
+    def test_init_schema_has_category_index(self):
+        """Verify that init_schema.sql has category index."""
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts", "init_schema.sql"
+        )
+
+        with open(schema_path, 'r') as f:
+            content = f.read()
+
+        assert 'idx_documents_category' in content, \
+            "Should have index on documents.category"
+
+
+# ============================================================================
+# Test Code Structure Validation (Migration)
+# ============================================================================
+
+class TestMigrationStructure:
+    """Test that migration file exists and is correct."""
+
+    def test_migration_file_exists(self):
+        """Verify that migration file exists."""
+        migration_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts", "migrations", "001_add_document_category.sql"
+        )
+
+        assert os.path.exists(migration_path), \
+            "Migration file should exist at scripts/migrations/001_add_document_category.sql"
+
+    def test_migration_adds_category_column(self):
+        """Verify that migration adds category column."""
+        migration_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts", "migrations", "001_add_document_category.sql"
+        )
+
+        with open(migration_path, 'r') as f:
+            content = f.read()
+
+        assert 'ALTER TABLE documents' in content, \
+            "Migration should ALTER TABLE documents"
+        assert 'ADD COLUMN' in content, \
+            "Migration should ADD COLUMN"
+        assert 'category' in content, \
+            "Migration should add category column"
+
+
+# ============================================================================
+# Test Code Structure Validation (API Routes)
+# ============================================================================
+
+class TestAPIRoutesStructure:
+    """Test that API routes file supports category."""
+
+    def test_document_response_has_category(self):
+        """Verify that DocumentResponse model has category field."""
+        routes_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "api", "routes", "documents.py"
+        )
+
+        with open(routes_path, 'r') as f:
+            content = f.read()
+
+        start = content.find('class DocumentResponse')
+        end = content.find('class ', start + 1)
+        response_code = content[start:end]
+
+        assert 'category:' in response_code or 'category =' in response_code, \
+            "DocumentResponse should have category field"
+
+    def test_list_documents_accepts_category_param(self):
+        """Verify that list_documents endpoint accepts category param."""
+        routes_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "api", "routes", "documents.py"
+        )
+
+        with open(routes_path, 'r') as f:
+            content = f.read()
+
+        start = content.find('async def list_documents(')
+        end = content.find('async def ', start + 1)
+        list_docs_code = content[start:end]
+
+        assert 'category' in list_docs_code, \
+            "list_documents should accept category parameter"
+
+    def test_upload_documents_accepts_category(self):
+        """Verify that upload_documents can accept category."""
+        routes_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "src", "api", "routes", "documents.py"
+        )
+
+        with open(routes_path, 'r') as f:
+            content = f.read()
+
+        start = content.find('async def upload_documents(')
+        end = content.find('async def ', start + 1)
+        upload_code = content[start:end]
+
+        assert 'category' in upload_code, \
+            "upload_documents should accept category parameter"
