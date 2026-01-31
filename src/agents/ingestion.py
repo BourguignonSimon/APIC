@@ -58,19 +58,15 @@ class IngestionAgent(BaseAgent):
         Returns:
             Updated state with ingestion results
         """
-        self.log_info("Starting document ingestion process")
-
         try:
             project_id = state.get("project_id")
             documents = state.get("documents", [])
 
             if not documents:
-                self.log_info("No documents to process")
                 state["ingestion_complete"] = True
                 state["messages"].append("No documents provided for ingestion")
                 return state
 
-            # Process each document
             all_chunks = []
             document_summaries = []
 
@@ -78,41 +74,31 @@ class IngestionAgent(BaseAgent):
                 if isinstance(doc, dict):
                     doc = Document(**doc)
 
-                self.log_info(f"Processing document: {doc.filename}")
-
-                # Parse document based on type
                 content = await self._parse_document(doc)
 
                 if content:
-                    # Chunk the content
                     chunks = self._chunk_document(content, doc)
                     all_chunks.extend(chunks)
 
-                    # Generate summary
                     summary = await self._generate_summary(content, doc.filename)
                     document_summaries.append(summary)
 
-                    # Update document metadata
                     doc.chunk_count = len(chunks)
                     doc.processed = True
                     doc.content_summary = summary
 
-            # Store chunks in vector database with graceful degradation
             if all_chunks:
                 try:
                     await self._store_in_vector_db(
                         chunks=all_chunks,
                         namespace=f"client_{project_id}",
                     )
-                    self.log_info(f"Stored {len(all_chunks)} chunks in vector database")
                 except Exception as vector_error:
-                    self.log_error(f"Vector storage failed, continuing without it: {vector_error}")
+                    self.log_error("Vector storage failed", vector_error)
                     state["messages"].append(
-                        f"Warning: Vector storage unavailable. "
-                        f"Document processing completed but semantic search may be limited."
+                        "Warning: Vector storage unavailable. Semantic search may be limited."
                     )
 
-            # Update state
             state["documents"] = [
                 d.model_dump() if hasattr(d, 'model_dump') else d
                 for d in documents
@@ -121,15 +107,13 @@ class IngestionAgent(BaseAgent):
             state["ingestion_complete"] = True
             state["current_node"] = "ingestion"
             state["messages"].append(
-                f"Successfully processed {len(documents)} documents "
-                f"into {len(all_chunks)} chunks"
+                f"Processed {len(documents)} documents into {len(all_chunks)} chunks"
             )
 
-            self.log_info("Document ingestion complete")
             return state
 
         except Exception as e:
-            self.log_error("Error during ingestion", e)
+            self.log_error("Ingestion failed", e)
             state["errors"].append(f"Ingestion error: {str(e)}")
             state["ingestion_complete"] = False
             return state
@@ -147,7 +131,6 @@ class IngestionAgent(BaseAgent):
         file_path = os.path.join(settings.UPLOAD_DIR, doc.project_id, doc.filename)
 
         if not os.path.exists(file_path):
-            self.log_error(f"File not found: {file_path}")
             return None
 
         file_type = doc.file_type.lower()
@@ -162,7 +145,6 @@ class IngestionAgent(BaseAgent):
             elif file_type == "pptx":
                 return await self._parse_pptx(file_path)
             else:
-                self.log_info(f"Unsupported file type: {file_type}, attempting text extraction")
                 return await self._parse_txt(file_path)
         except Exception as e:
             self.log_error(f"Error parsing {doc.filename}", e)
@@ -294,20 +276,13 @@ class IngestionAgent(BaseAgent):
         from src.services.llm_cache import get_llm_cache
 
         cache = get_llm_cache()
-
-        # Create cache key from document ID
         cache_key = f"summary_{document_id}"
 
-        # Try to get from cache
         cached_summary = await cache.get(cache_key)
         if cached_summary:
-            self.log_info(f"Using cached summary for document {document_id}")
             return cached_summary
 
-        # Generate new summary
         summary = await self._generate_summary(content, filename)
-
-        # Cache for future use
         await cache.set(cache_key, summary)
 
         return summary
@@ -325,46 +300,31 @@ class IngestionAgent(BaseAgent):
             namespace: Vector DB namespace for isolation
         """
         if not settings.PINECONE_API_KEY:
-            self.log_info("Pinecone API key not configured, skipping vector storage")
             return
 
-        try:
-            # Initialize Pinecone
-            pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+        pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+        index_name = settings.PINECONE_INDEX_NAME
+        existing_indexes = [idx.name for idx in pc.list_indexes()]
 
-            # Get or create index
-            index_name = settings.PINECONE_INDEX_NAME
-
-            # Check if index exists
-            existing_indexes = [idx.name for idx in pc.list_indexes()]
-
-            if index_name not in existing_indexes:
-                self.log_info(f"Creating Pinecone index: {index_name}")
-                pc.create_index(
-                    name=index_name,
-                    dimension=1536,  # text-embedding-3-small dimension
-                    metric="cosine",
-                    spec={
-                        "serverless": {
-                            "cloud": "aws",
-                            "region": settings.PINECONE_ENVIRONMENT,
-                        }
-                    },
-                )
-
-            # Store vectors
-            vector_store = PineconeVectorStore.from_documents(
-                documents=chunks,
-                embedding=self.embeddings,
-                index_name=index_name,
-                namespace=namespace,
+        if index_name not in existing_indexes:
+            pc.create_index(
+                name=index_name,
+                dimension=1536,
+                metric="cosine",
+                spec={
+                    "serverless": {
+                        "cloud": "aws",
+                        "region": settings.PINECONE_ENVIRONMENT,
+                    }
+                },
             )
 
-            self.log_info(f"Successfully stored {len(chunks)} vectors in namespace: {namespace}")
-
-        except Exception as e:
-            self.log_error("Error storing vectors in Pinecone", e)
-            raise
+        PineconeVectorStore.from_documents(
+            documents=chunks,
+            embedding=self.embeddings,
+            index_name=index_name,
+            namespace=namespace,
+        )
 
     async def query_knowledge_base(
         self,
@@ -384,7 +344,6 @@ class IngestionAgent(BaseAgent):
             List of relevant document chunks
         """
         if not settings.PINECONE_API_KEY:
-            self.log_info("Pinecone API key not configured")
             return []
 
         try:
@@ -393,10 +352,6 @@ class IngestionAgent(BaseAgent):
                 embedding=self.embeddings,
                 namespace=namespace,
             )
-
-            results = vector_store.similarity_search(query, k=top_k)
-            return results
-
-        except Exception as e:
-            self.log_error("Error querying vector database", e)
+            return vector_store.similarity_search(query, k=top_k)
+        except Exception:
             return []

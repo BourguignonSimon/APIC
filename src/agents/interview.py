@@ -9,7 +9,7 @@ from datetime import datetime
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, extract_json
 from src.models.schemas import (
     Hypothesis,
     InterviewQuestion,
@@ -45,65 +45,53 @@ class InterviewArchitectAgent(BaseAgent):
         Returns:
             Updated state with interview script (SUSPENDED for human interview)
         """
-        self.log_info("Starting interview script generation")
-
         try:
             project_id = state.get("project_id")
             hypotheses_data = state.get("hypotheses", [])
             target_departments = state.get("project", {}).get("target_departments", [])
 
-            # Convert hypothesis dicts to objects
             hypotheses = [
                 Hypothesis(**h) if isinstance(h, dict) else h
                 for h in hypotheses_data
             ]
 
             if not hypotheses:
-                self.log_info("No hypotheses to base interview on")
                 state["interview_script"] = None
                 state["script_generation_complete"] = True
                 state["messages"].append("No hypotheses available for interview generation")
                 return state
 
-            # First, analyze the hypotheses to understand key themes and priorities
-            self.log_info("Analyzing hypotheses to identify key themes and priorities")
             analysis = await self._analyze_hypotheses(hypotheses, target_departments)
 
-            # Determine roles to interview based on analysis
             target_roles = await self._determine_target_roles(
                 hypotheses,
                 target_departments,
                 analysis,
             )
 
-            # Generate questions for each role based on analysis
             questions = await self._generate_questions(
                 hypotheses,
                 target_roles,
                 analysis,
             )
 
-            # Generate tailored introduction based on analysis
             introduction = await self._generate_introduction(
                 hypotheses,
                 target_departments,
                 analysis,
             )
 
-            # Generate tailored closing notes based on analysis
             closing_notes = await self._generate_closing_notes(
                 hypotheses,
                 questions,
                 analysis,
             )
 
-            # Estimate duration based on question complexity
             estimated_duration = await self._estimate_duration(
                 questions,
                 analysis,
             )
 
-            # Create the interview script
             interview_script = InterviewScript(
                 project_id=project_id,
                 target_departments=target_departments or self._extract_departments(hypotheses),
@@ -115,27 +103,20 @@ class InterviewArchitectAgent(BaseAgent):
                 generated_at=datetime.utcnow(),
             )
 
-            # Update state - SUSPEND for human interview
             state["interview_script"] = interview_script.model_dump()
             state["script_generation_complete"] = True
             state["is_suspended"] = True
             state["suspension_reason"] = "Awaiting interview transcript"
             state["current_node"] = "interview"
             state["messages"].append(
-                f"Generated interview script with {len(questions)} questions "
-                f"for roles: {', '.join(target_roles)}. "
-                "System suspended - awaiting interview transcript."
-            )
-
-            self.log_info(
-                f"Interview script generated with {len(questions)} questions. "
-                "Workflow suspended for human interview."
+                f"Generated interview script with {len(questions)} questions. "
+                "Awaiting interview transcript."
             )
 
             return state
 
         except Exception as e:
-            self.log_error("Error generating interview script", e)
+            self.log_error("Interview script generation failed", e)
             state["errors"].append(f"Interview script error: {str(e)}")
             state["script_generation_complete"] = False
             return state
@@ -215,20 +196,8 @@ Return ONLY the JSON object."""
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            analysis = json.loads(content)
-            self.log_info(f"Analysis complete: identified {len(analysis.get('key_themes', []))} key themes")
-            return analysis
-
-        except Exception as e:
-            self.log_error(f"Failed to parse analysis: {e}")
-            # Return default analysis structure
+            return extract_json(response.content)
+        except Exception:
             return {
                 "key_themes": [h.category for h in hypotheses],
                 "priority_areas": [{"area": h.process_area, "reason": h.description, "severity": "medium"} for h in hypotheses[:3]],
@@ -322,20 +291,10 @@ Return ONLY the JSON object."""
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            roles = json.loads(content)
-            # Ensure all roles are strings
+            roles = extract_json(response.content)
             if isinstance(roles, list):
-                roles = [str(role) if not isinstance(role, str) else role for role in roles]
-                return roles
-            else:
-                return ["Operations Manager"]
+                return [str(role) for role in roles]
+            return ["Operations Manager"]
         except Exception:
             return ["Operations Manager", "Department Head", "Process Owner"]
 
@@ -459,14 +418,7 @@ Return ONLY the JSON object."""
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            questions_data = json.loads(content)
+            questions_data = extract_json(response.content)
 
             questions = []
             for q_data in questions_data:
@@ -481,9 +433,7 @@ Return ONLY the JSON object."""
 
             return questions
 
-        except Exception as e:
-            self.log_error(f"Failed to parse questions: {e}")
-            # Return default questions
+        except Exception:
             return self._get_default_questions(target_roles, hypotheses)
 
     def _get_default_questions(

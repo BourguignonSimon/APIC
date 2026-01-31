@@ -9,7 +9,7 @@ import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent, get_llm, extract_json
 from .ingestion import IngestionAgent
 from src.models.schemas import (
     Hypothesis,
@@ -46,8 +46,6 @@ class GapAnalystAgent(BaseAgent):
         Returns:
             Updated state with gap analysis results
         """
-        self.log_info("Starting gap analysis")
-
         try:
             project_id = state.get("project_id")
             transcript = state.get("transcript")
@@ -55,21 +53,17 @@ class GapAnalystAgent(BaseAgent):
             document_summaries = state.get("document_summaries", [])
 
             if not transcript:
-                self.log_error("No transcript provided for gap analysis")
                 state["errors"].append("No transcript available for gap analysis")
                 state["gap_analysis_complete"] = False
                 return state
 
-            # Convert hypotheses
             hypotheses = [
                 Hypothesis(**h) if isinstance(h, dict) else h
                 for h in hypotheses_data
             ]
 
-            # Get SOP content from vector DB
             sop_content = await self._retrieve_sop_content(project_id)
 
-            # Perform gap analysis
             gaps = await self._analyze_gaps(
                 sop_content=sop_content,
                 transcript=transcript,
@@ -77,27 +71,22 @@ class GapAnalystAgent(BaseAgent):
                 document_summaries=document_summaries,
             )
 
-            # Classify tasks for automation potential
             classified_gaps = await self._classify_automation_potential(gaps)
-
-            # Assess severity and impact
             assessed_gaps = await self._assess_severity(classified_gaps)
 
-            # Update state
             state["gap_analyses"] = [g.model_dump() for g in assessed_gaps]
             state["gap_analysis_complete"] = True
             state["transcript_received"] = True
             state["is_suspended"] = False
             state["current_node"] = "gap_analysis"
             state["messages"].append(
-                f"Identified {len(assessed_gaps)} gaps between documented and actual processes"
+                f"Identified {len(assessed_gaps)} gaps"
             )
 
-            self.log_info(f"Gap analysis complete: {len(assessed_gaps)} gaps identified")
             return state
 
         except Exception as e:
-            self.log_error("Error during gap analysis", e)
+            self.log_error("Gap analysis failed", e)
             state["errors"].append(f"Gap analysis error: {str(e)}")
             state["gap_analysis_complete"] = False
             return state
@@ -113,8 +102,6 @@ class GapAnalystAgent(BaseAgent):
             Combined SOP content
         """
         namespace = f"client_{project_id}"
-
-        # Query for SOP-related content
         sop_queries = [
             "standard operating procedure process steps workflow",
             "documented procedure guidelines instructions",
@@ -132,8 +119,8 @@ class GapAnalystAgent(BaseAgent):
                 )
                 for doc in results:
                     sop_content.append(doc.page_content)
-            except Exception as e:
-                self.log_debug(f"SOP query failed: {e}")
+            except Exception:
+                pass  # Vector DB unavailable
 
         return "\n\n".join(sop_content) if sop_content else "No SOP content retrieved"
 
@@ -222,44 +209,22 @@ class GapAnalystAgent(BaseAgent):
             )
         )
 
-        try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+        gaps_data = extract_json(response.content)
 
-            gaps_data = json.loads(content)
+        gaps = []
+        for g_data in gaps_data:
+            gap = GapAnalysisItem(
+                id=str(uuid.uuid4()),
+                process_step=g_data.get("process_step", "Unknown"),
+                sop_description=g_data.get("sop_description", "Not documented"),
+                observed_behavior=g_data.get("observed_behavior", ""),
+                gap_description=g_data.get("gap_description", ""),
+                root_cause=g_data.get("root_cause"),
+                impact=g_data.get("impact", "Unknown impact"),
+            )
+            gaps.append(gap)
 
-            gaps = []
-            for g_data in gaps_data:
-                gap = GapAnalysisItem(
-                    id=str(uuid.uuid4()),
-                    process_step=g_data.get("process_step", "Unknown"),
-                    sop_description=g_data.get("sop_description", "Not documented"),
-                    observed_behavior=g_data.get("observed_behavior", ""),
-                    gap_description=g_data.get("gap_description", ""),
-                    root_cause=g_data.get("root_cause"),
-                    impact=g_data.get("impact", "Unknown impact"),
-                )
-                gaps.append(gap)
-
-            return gaps
-
-        except json.JSONDecodeError as e:
-            self.log_error(f"Failed to parse gap analysis: {e}")
-            return [
-                GapAnalysisItem(
-                    id=str(uuid.uuid4()),
-                    process_step="General Process",
-                    sop_description="Documented procedures",
-                    observed_behavior="Actual practice differs from documentation",
-                    gap_description="Gap between documented and actual processes",
-                    root_cause="Unable to determine specific cause",
-                    impact="Requires further investigation",
-                )
-            ]
+        return gaps
 
     async def _classify_automation_potential(
         self,
@@ -312,25 +277,14 @@ class GapAnalystAgent(BaseAgent):
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            classifications = json.loads(content)
+            classifications = extract_json(response.content)
             classification_map = {
                 c["process_step"]: c["task_category"]
                 for c in classifications
             }
 
             for gap in gaps:
-                category_str = classification_map.get(
-                    gap.process_step,
-                    "Automatable"
-                )
-                # Map string to enum
+                category_str = classification_map.get(gap.process_step, "Automatable")
                 if "Human" in category_str:
                     gap.task_category = TaskCategory.HUMAN_ONLY
                 elif "Partial" in category_str:
@@ -340,8 +294,7 @@ class GapAnalystAgent(BaseAgent):
 
             return gaps
 
-        except Exception as e:
-            self.log_debug(f"Classification parsing failed: {e}")
+        except Exception:
             return gaps
 
     async def _assess_severity(
@@ -391,24 +344,9 @@ class GapAnalystAgent(BaseAgent):
         )
 
         try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            severities = json.loads(content)
-            severity_map = {
-                s["process_step"]: s["severity"]
-                for s in severities
-            }
-
+            extract_json(response.content)
             # Note: GapAnalysisItem doesn't have severity field
-            # This would be used in AnalysisResult in Node 5
-
+            # Severity is used in AnalysisResult in Node 5
             return gaps
-
-        except Exception as e:
-            self.log_debug(f"Severity parsing failed: {e}")
+        except Exception:
             return gaps
