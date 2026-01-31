@@ -53,13 +53,12 @@ class ProjectListResponse(BaseModel):
 
 class SuspendedProjectResponse(BaseModel):
     """Response model for suspended projects."""
-    project_id: str
-    thread_id: str
+    id: str
+    thread_id: Optional[str]
     project_name: str
     client_name: str
-    current_node: str
-    suspension_reason: Optional[str]
-    suspended_at: str
+    status: str
+    created_at: str
 
 
 # ============================================================================
@@ -74,14 +73,7 @@ class SuspendedProjectResponse(BaseModel):
     description="Create a new consulting project for a client.",
 )
 async def create_project(request: ProjectCreateRequest):
-    """
-    Create a new consulting project.
-
-    This will:
-    - Generate a unique project ID
-    - Create a vector namespace for document storage
-    - Initialize project state
-    """
+    """Create a new consulting project."""
     try:
         project = state_manager.create_project(
             client_name=request.client_name,
@@ -124,7 +116,8 @@ async def list_projects():
 async def get_suspended_projects():
     """Get all projects waiting at the human breakpoint."""
     try:
-        suspended = state_manager.get_suspended_projects()
+        # Query projects with status "interview_ready" (suspended at human breakpoint)
+        suspended = state_manager.get_projects_by_status("interview_ready")
         return [SuspendedProjectResponse(**p) for p in suspended]
     except Exception as e:
         raise HTTPException(
@@ -147,11 +140,6 @@ async def get_project(project_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project {project_id} not found",
         )
-
-    # Get thread ID if available
-    thread_id = state_manager.get_thread_id(project_id)
-    project["thread_id"] = thread_id
-
     return ProjectResponse(**project)
 
 
@@ -177,104 +165,3 @@ async def update_project_status(project_id: str, status: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update status: {str(e)}",
         )
-
-
-# ============================================================================
-# Enhanced Features - Pagination and Filtering
-# ============================================================================
-
-async def get_projects_paginated(page: int = 1, page_size: int = 10) -> dict:
-    """
-    Get paginated list of projects.
-
-    Args:
-        page: Page number (1-indexed)
-        page_size: Number of items per page
-
-    Returns:
-        Dictionary with paginated results
-    """
-    from src.models.schemas import PaginatedResponse
-
-    # Mock implementation - would query from state_manager with pagination
-    total = 25  # Total count from database
-    total_pages = (total + page_size - 1) // page_size
-
-    # Mock projects for the current page
-    projects = [
-        {"id": f"project-{i}", "project_name": f"Project {i}"}
-        for i in range((page - 1) * page_size, min(page * page_size, total))
-    ]
-
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
-        "items": projects
-    }
-
-
-async def get_projects_filtered(status: str) -> list:
-    """
-    Get projects filtered by status.
-
-    Args:
-        status: Project status to filter by
-
-    Returns:
-        List of projects matching the status
-    """
-    # Mock implementation
-    return [
-        {"id": "project-1", "status": status},
-        {"id": "project-2", "status": status},
-    ]
-
-
-async def get_projects_by_date_range(start_date, end_date) -> list:
-    """
-    Get projects within a date range.
-
-    Args:
-        start_date: Start date
-        end_date: End date
-
-    Returns:
-        List of projects in the date range
-    """
-    from datetime import datetime, timedelta
-
-    # Mock implementation
-    return [
-        {"id": "project-1", "created_at": datetime.now() - timedelta(days=15)},
-        {"id": "project-2", "created_at": datetime.now() - timedelta(days=5)},
-    ]
-
-
-async def bulk_update_project_status(project_ids: list, new_status: str) -> dict:
-    """
-    Update status for multiple projects.
-
-    Args:
-        project_ids: List of project IDs
-        new_status: New status to apply
-
-    Returns:
-        Dictionary with update results
-    """
-    # Mock implementation
-    updated = 0
-    failed = 0
-
-    for project_id in project_ids:
-        try:
-            # Would call state_manager.update_project_status(project_id, new_status)
-            updated += 1
-        except Exception:
-            failed += 1
-
-    return {
-        "updated": updated,
-        "failed": failed
-    }

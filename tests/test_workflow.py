@@ -1,13 +1,12 @@
 """
-Comprehensive tests for workflow orchestration and state management following TDD principles.
+Tests for workflow orchestration and state management.
 """
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import uuid
-from datetime import datetime
 
-from src.services.workflow import ConsultantGraph
+from src.services.workflow import ConsultantGraph, WorkflowState, get_workflow, create_workflow
 from src.services.state_manager import StateManager
 from src.models.schemas import GraphState, ProjectStatus
 
@@ -22,263 +21,301 @@ class TestConsultantGraph:
     @pytest.fixture
     def graph(self):
         """Create a ConsultantGraph instance for testing."""
-        with patch('src.services.workflow.StateManager'):
+        with patch('src.services.workflow.get_agent_config') as mock_config:
+            mock_config.return_value.get_agent_config.return_value = {}
             return ConsultantGraph()
 
-    @pytest.fixture
-    def initial_state(self):
-        """Create an initial graph state for testing."""
-        return GraphState(
-            project_id=str(uuid.uuid4()),
-            client_name="Test Corp",
-            project_name="Test Project",
-            target_departments=["Finance"],
-            documents=[],
-            messages=[],
-            errors=[],
-        )
-
-    @pytest.mark.asyncio
-    async def test_graph_initialization(self, graph):
+    def test_graph_initialization(self, graph):
         """Test that ConsultantGraph initializes properly."""
         assert graph is not None
-        assert hasattr(graph, 'run_to_breakpoint') or hasattr(graph, 'workflow')
+        assert graph.workflow is not None
+        assert graph.checkpointer is not None
 
-    @pytest.mark.asyncio
-    async def test_run_to_breakpoint_returns_state(self, graph, initial_state):
-        """Test that run_to_breakpoint returns an updated state."""
-        with patch.object(graph, 'state_manager') as mock_sm:
-            mock_sm.get_project_state = AsyncMock(return_value=initial_state.model_dump())
-            mock_sm.save_state = AsyncMock()
-
-            # Mock the workflow execution
-            with patch.object(graph, 'workflow', create=True) as mock_workflow:
-                mock_workflow.ainvoke = AsyncMock(return_value=initial_state.model_dump())
-
-                result = await graph.run_to_breakpoint(initial_state.project_id)
-
-                assert result is not None
-                assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_resume_from_breakpoint_requires_transcript(self, graph):
-        """Test that resume_from_breakpoint requires a transcript."""
+    def test_get_initial_state(self, graph):
+        """Test that get_initial_state returns proper WorkflowState."""
         project_id = str(uuid.uuid4())
+        state = graph.get_initial_state(
+            project_id=project_id,
+            project={"name": "Test"},
+            documents=[{"id": "doc1"}],
+        )
 
-        with patch.object(graph, 'state_manager') as mock_sm:
-            mock_sm.get_project_state = AsyncMock(return_value={
+        assert state["project_id"] == project_id
+        assert state["documents"] == [{"id": "doc1"}]
+        assert state["ingestion_complete"] is False
+        assert state["is_suspended"] is False
+
+    @pytest.mark.asyncio
+    async def test_run_to_interview(self, graph):
+        """Test that run_to_interview executes workflow."""
+        project_id = str(uuid.uuid4())
+        thread_id = str(uuid.uuid4())
+
+        with patch.object(graph.workflow, 'ainvoke', new_callable=AsyncMock) as mock_invoke:
+            mock_invoke.return_value = {
                 "project_id": project_id,
                 "is_suspended": True,
-            })
+                "interview_script": {"questions": []},
+            }
 
-            # This should handle missing transcript gracefully
-            result = await graph.resume_from_breakpoint(project_id, "Test transcript")
+            result = await graph.run_to_interview(
+                project_id=project_id,
+                project={"name": "Test"},
+                documents=[],
+                thread_id=thread_id,
+            )
 
             assert result is not None
+            assert result["project_id"] == project_id
+            mock_invoke.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_workflow_handles_errors_gracefully(self, graph, initial_state):
-        """Test that workflow handles errors without crashing."""
-        with patch.object(graph, 'state_manager') as mock_sm:
-            mock_sm.get_project_state = AsyncMock(side_effect=Exception("Test error"))
+    async def test_resume_with_transcript(self, graph):
+        """Test that resume_with_transcript continues workflow."""
+        thread_id = str(uuid.uuid4())
 
-            # The workflow should handle errors gracefully
-            try:
-                result = await graph.run_to_breakpoint(initial_state.project_id)
-                # Should either return an error state or raise a handled exception
-                assert True
-            except Exception as e:
-                # Should be a handled exception with context
-                assert "Test error" in str(e) or True
-
-    @pytest.mark.asyncio
-    async def test_workflow_progression_through_nodes(self, graph, initial_state):
-        """Test that workflow progresses through all nodes."""
-        state_dict = initial_state.model_dump()
-
-        # Mock each agent
-        with patch('src.agents.ingestion.IngestionAgent') as mock_ingestion, \
-             patch('src.agents.hypothesis.HypothesisGeneratorAgent') as mock_hypothesis, \
-             patch('src.agents.interview.InterviewArchitectAgent') as mock_interview:
-
-            mock_ingestion.return_value.process = AsyncMock(return_value={
-                **state_dict,
-                "ingestion_complete": True,
-            })
-            mock_hypothesis.return_value.process = AsyncMock(return_value={
-                **state_dict,
-                "hypothesis_generation_complete": True,
-                "hypotheses": [],
-            })
-            mock_interview.return_value.process = AsyncMock(return_value={
-                **state_dict,
-                "interview_script_ready": True,
+        with patch.object(graph.workflow, 'get_state') as mock_get_state, \
+             patch.object(graph.workflow, 'ainvoke', new_callable=AsyncMock) as mock_invoke:
+            mock_get_state.return_value = MagicMock(values={
                 "is_suspended": True,
+                "transcript": None,
+            })
+            mock_invoke.return_value = {
+                "is_suspended": False,
+                "transcript": "Test transcript",
+                "report_complete": True,
+            }
+
+            result = await graph.resume_with_transcript(
+                thread_id=thread_id,
+                transcript="Test transcript",
+            )
+
+            assert result is not None
+            assert result["transcript"] == "Test transcript"
+            mock_invoke.assert_called_once()
+
+    def test_get_state(self, graph):
+        """Test that get_state retrieves workflow state."""
+        thread_id = str(uuid.uuid4())
+
+        with patch.object(graph.workflow, 'get_state') as mock_get_state:
+            mock_get_state.return_value = MagicMock(values={
+                "project_id": "test",
+                "current_node": "interview",
             })
 
-            # The workflow should progress through these nodes
-            # This is a structural test to ensure the workflow is set up correctly
-            assert True  # Placeholder for actual workflow progression test
+            result = graph.get_state(thread_id)
+
+            assert result is not None
+            assert result["current_node"] == "interview"
+
+    def test_get_state_returns_none_on_error(self, graph):
+        """Test that get_state returns None on error."""
+        thread_id = str(uuid.uuid4())
+
+        with patch.object(graph.workflow, 'get_state', side_effect=Exception("Error")):
+            result = graph.get_state(thread_id)
+            assert result is None
+
+    def test_should_wait_for_transcript(self, graph):
+        """Test the conditional edge logic."""
+        # Should wait when suspended and no transcript
+        state_suspended = {"is_suspended": True, "transcript_received": False}
+        assert graph._should_wait_for_transcript(state_suspended) == "wait"
+
+        # Should continue when transcript received
+        state_with_transcript = {"is_suspended": True, "transcript_received": True}
+        assert graph._should_wait_for_transcript(state_with_transcript) == "continue"
+
+        # Should continue when not suspended
+        state_not_suspended = {"is_suspended": False, "transcript_received": False}
+        assert graph._should_wait_for_transcript(state_not_suspended) == "continue"
+
+
+class TestWorkflowFactoryFunctions:
+    """Test workflow factory functions."""
+
+    def test_create_workflow(self):
+        """Test that create_workflow returns a new instance."""
+        with patch('src.services.workflow.get_agent_config') as mock_config:
+            mock_config.return_value.get_agent_config.return_value = {}
+
+            workflow1 = create_workflow()
+            workflow2 = create_workflow()
+
+            assert workflow1 is not workflow2
+
+    def test_get_workflow_singleton(self):
+        """Test that get_workflow returns singleton instance."""
+        import src.services.workflow as workflow_module
+        workflow_module._workflow_instance = None
+
+        with patch('src.services.workflow.get_agent_config') as mock_config:
+            mock_config.return_value.get_agent_config.return_value = {}
+
+            workflow1 = get_workflow()
+            workflow2 = get_workflow()
+
+            assert workflow1 is workflow2
+
+        workflow_module._workflow_instance = None
 
 
 # ============================================================================
-# Test StateManager
+# Test StateManager (Data Persistence)
 # ============================================================================
 
 class TestStateManager:
     """Test suite for StateManager."""
 
     @pytest.fixture
-    def state_manager(self):
-        """Create a StateManager instance for testing."""
-        with patch('src.services.state_manager.asyncpg'):
-            return StateManager()
+    def mock_engine(self):
+        """Create a mock SQLAlchemy engine."""
+        with patch('src.services.state_manager.create_engine') as mock_create:
+            mock_engine = MagicMock()
+            mock_create.return_value = mock_engine
+            yield mock_engine
 
     @pytest.fixture
-    def sample_project_data(self):
-        """Create sample project data for testing."""
-        return {
-            "id": str(uuid.uuid4()),
-            "client_name": "Test Corp",
-            "project_name": "Test Project",
-            "description": "Test description",
-            "target_departments": ["Finance"],
-            "status": ProjectStatus.CREATED.value,
-        }
+    def state_manager(self, mock_engine):
+        """Create a StateManager instance for testing."""
+        with patch('src.services.state_manager.inspect') as mock_inspect:
+            mock_inspect.return_value.get_table_names.return_value = []
+            return StateManager(database_url="sqlite:///:memory:")
 
-    @pytest.mark.asyncio
-    async def test_create_project_returns_project_data(self, state_manager, sample_project_data):
-        """Test that creating a project returns project data."""
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.fetchrow = AsyncMock(return_value=sample_project_data)
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+    def test_initialization(self, state_manager):
+        """Test that StateManager initializes properly."""
+        assert state_manager is not None
+        assert state_manager.engine is not None
+        assert state_manager.SessionLocal is not None
 
-            result = await state_manager.create_project(
-                client_name=sample_project_data["client_name"],
-                project_name=sample_project_data["project_name"],
+    def test_create_project(self, state_manager):
+        """Test that create_project creates a project with thread_id."""
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_session.return_value = mock_db
+
+            result = state_manager.create_project(
+                client_name="Test Corp",
+                project_name="Test Project",
+                description="Test",
+                target_departments=["Finance"],
             )
 
             assert result is not None
-            if isinstance(result, dict):
-                assert "client_name" in result or "project_name" in result
+            assert "id" in result
+            assert "thread_id" in result
+            assert result["client_name"] == "Test Corp"
 
-    @pytest.mark.asyncio
-    async def test_get_project_returns_none_for_nonexistent(self, state_manager):
-        """Test that getting a non-existent project returns None."""
-        fake_id = str(uuid.uuid4())
+    def test_get_project(self, state_manager):
+        """Test that get_project retrieves project data."""
+        project_id = str(uuid.uuid4())
 
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.fetchrow = AsyncMock(return_value=None)
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_db.query.return_value.filter_by.return_value.first.return_value = None
+            mock_session.return_value = mock_db
 
-            result = await state_manager.get_project(fake_id)
-
+            result = state_manager.get_project(project_id)
             assert result is None
 
-    @pytest.mark.asyncio
-    async def test_save_state_persists_data(self, state_manager):
-        """Test that save_state persists workflow state."""
-        project_id = str(uuid.uuid4())
-        state_data = {
-            "project_id": project_id,
-            "current_node": "ingestion",
-            "messages": ["Test message"],
-        }
+    def test_list_projects(self, state_manager):
+        """Test that list_projects returns all projects."""
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_db.query.return_value.order_by.return_value.all.return_value = []
+            mock_session.return_value = mock_db
 
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.execute = AsyncMock()
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+            result = state_manager.list_projects()
+            assert isinstance(result, list)
 
-            await state_manager.save_state(project_id, state_data)
-
-            # Should not raise an exception
-            assert True
-
-    @pytest.mark.asyncio
-    async def test_get_project_state_returns_state(self, state_manager):
-        """Test that get_project_state returns the workflow state."""
+    def test_update_project_status(self, state_manager):
+        """Test that update_project_status changes status."""
         project_id = str(uuid.uuid4())
 
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.fetchrow = AsyncMock(return_value={
-                "project_id": project_id,
-                "state_data": '{"project_id": "test"}',
-            })
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_project = MagicMock()
+            mock_db.query.return_value.filter_by.return_value.first.return_value = mock_project
+            mock_session.return_value = mock_db
 
-            result = await state_manager.get_project_state(project_id)
+            state_manager.update_project_status(project_id, "completed")
 
-            assert result is not None
+            assert mock_project.status == "completed"
+            mock_db.commit.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_update_project_status_changes_status(self, state_manager):
-        """Test that update_project_status changes the project status."""
+    def test_get_projects_by_status(self, state_manager):
+        """Test that get_projects_by_status filters correctly."""
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_db.query.return_value.filter_by.return_value.all.return_value = []
+            mock_session.return_value = mock_db
+
+            result = state_manager.get_projects_by_status("interview_ready")
+            assert isinstance(result, list)
+
+    def test_add_document(self, state_manager):
+        """Test that add_document creates document record."""
         project_id = str(uuid.uuid4())
 
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.execute = AsyncMock()
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_session.return_value = mock_db
 
-            await state_manager.update_project_status(
-                project_id,
-                ProjectStatus.INGESTING
+            result = state_manager.add_document(
+                project_id=project_id,
+                filename="test.pdf",
+                file_type="pdf",
+                file_size=1024,
+                file_path="/path/to/file",
+                category="general",
             )
 
-            # Should not raise an exception
-            assert True
-
-    @pytest.mark.asyncio
-    async def test_add_document_to_project(self, state_manager):
-        """Test that documents can be added to a project."""
-        project_id = str(uuid.uuid4())
-        document_data = {
-            "filename": "test.txt",
-            "file_type": "txt",
-            "file_size": 1024,
-        }
-
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.fetchrow = AsyncMock(return_value={
-                **document_data,
-                "id": str(uuid.uuid4()),
-                "project_id": project_id,
-            })
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
-
-            result = await state_manager.add_document(project_id, document_data)
-
             assert result is not None
+            mock_db.add.assert_called_once()
+            mock_db.commit.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_get_all_projects_returns_list(self, state_manager):
-        """Test that get_all_projects returns a list of projects."""
-        with patch.object(state_manager, 'db_pool') as mock_pool:
-            mock_conn = AsyncMock()
-            mock_conn.fetch = AsyncMock(return_value=[])
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+    def test_get_project_documents(self, state_manager):
+        """Test that get_project_documents retrieves documents."""
+        project_id = str(uuid.uuid4())
 
-            result = await state_manager.get_all_projects()
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_db.query.return_value.filter_by.return_value.all.return_value = []
+            mock_session.return_value = mock_db
 
+            result = state_manager.get_project_documents(project_id)
+            assert isinstance(result, list)
+
+    def test_get_project_documents_with_category_filter(self, state_manager):
+        """Test that get_project_documents can filter by category."""
+        project_id = str(uuid.uuid4())
+
+        with patch.object(state_manager, 'get_session') as mock_session:
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            query_mock = MagicMock()
+            mock_db.query.return_value.filter_by.return_value = query_mock
+            query_mock.filter_by.return_value.all.return_value = []
+            mock_session.return_value = mock_db
+
+            result = state_manager.get_project_documents(project_id, category="interview_results")
             assert isinstance(result, list)
 
 
@@ -328,73 +365,43 @@ class TestGraphState:
         assert isinstance(state_dict, dict)
         assert state_dict["project_id"] == "test-123"
 
-    def test_graph_state_deserialization(self):
-        """Test that GraphState can be created from dict."""
-        state_dict = {
+
+# ============================================================================
+# Test WorkflowState TypedDict
+# ============================================================================
+
+class TestWorkflowState:
+    """Test suite for WorkflowState TypedDict."""
+
+    def test_workflow_state_structure(self):
+        """Test that WorkflowState has expected fields."""
+        state: WorkflowState = {
             "project_id": "test-123",
-            "client_name": "Test Corp",
-            "project_name": "Test Project",
-            "target_departments": [],
+            "project": None,
             "documents": [],
+            "ingestion_complete": False,
+            "document_summaries": [],
             "hypotheses": [],
-            "messages": [],
+            "hypothesis_generation_complete": False,
+            "interview_script": None,
+            "script_generation_complete": False,
+            "is_suspended": False,
+            "suspension_reason": None,
+            "transcript": None,
+            "transcript_received": False,
+            "gap_analyses": [],
+            "gap_analysis_complete": False,
+            "solutions": [],
+            "solution_recommendations": [],
+            "solutioning_complete": False,
+            "report": None,
+            "report_complete": False,
+            "report_pdf_path": None,
+            "current_node": "start",
             "errors": [],
+            "messages": [],
         }
 
-        state = GraphState(**state_dict)
-        assert state.project_id == "test-123"
-        assert state.client_name == "Test Corp"
-
-
-# ============================================================================
-# Test Workflow Integration
-# ============================================================================
-
-class TestWorkflowIntegration:
-    """Integration tests for workflow components."""
-
-    @pytest.mark.asyncio
-    async def test_complete_workflow_can_execute(self):
-        """Test that a complete workflow can be executed end-to-end."""
-        # This is a high-level integration test
-        # In a real scenario, you'd test with actual components
-
-        with patch('src.services.workflow.StateManager'):
-            graph = ConsultantGraph()
-
-            # Verify the graph has all required components
-            assert hasattr(graph, 'run_to_breakpoint') or graph is not None
-
-    @pytest.mark.asyncio
-    async def test_state_persistence_across_workflow_steps(self):
-        """Test that state is properly persisted across workflow steps."""
-        project_id = str(uuid.uuid4())
-
-        with patch('src.services.state_manager.asyncpg'):
-            state_manager = StateManager()
-
-            # Create initial state
-            state_data = {
-                "project_id": project_id,
-                "current_node": "ingestion",
-                "messages": [],
-            }
-
-            with patch.object(state_manager, 'db_pool') as mock_pool:
-                mock_conn = AsyncMock()
-                mock_conn.execute = AsyncMock()
-                mock_conn.fetchrow = AsyncMock(return_value={
-                    "project_id": project_id,
-                    "state_data": str(state_data),
-                })
-                mock_pool.acquire = AsyncMock(return_value=mock_conn)
-                mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-                mock_pool.acquire.return_value.__aexit__ = AsyncMock()
-
-                # Save state
-                await state_manager.save_state(project_id, state_data)
-
-                # Retrieve state
-                retrieved_state = await state_manager.get_project_state(project_id)
-
-                assert retrieved_state is not None
+        assert state["project_id"] == "test-123"
+        assert state["is_suspended"] is False
+        assert state["current_node"] == "start"
