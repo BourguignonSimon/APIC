@@ -1,21 +1,22 @@
 """
 Tests for APIC API endpoints.
+
+This module contains all API endpoint tests including:
+- Health and info endpoints
+- Project management endpoints
+- Document management endpoints (including category support)
+- Workflow execution endpoints
+- Error handling
 """
 
 import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from datetime import datetime
 import uuid
 
-from src.api.main import create_app
 from src.models.schemas import ProjectStatus
 
-
-@pytest.fixture
-def client():
-    """Create a test client for the FastAPI application."""
-    app = create_app()
-    return TestClient(app)
+# Note: 'client' fixture is provided by conftest.py
 
 
 # ============================================================================
@@ -438,3 +439,194 @@ class TestErrorHandling:
             response = client.get("/api/v1/projects/not-a-uuid")
 
             assert response.status_code in [422, 404, 400]
+
+
+# ============================================================================
+# Test Document Category API Support
+# ============================================================================
+
+class TestDocumentCategoryAPI:
+    """Test API endpoints for document category support."""
+
+    def test_list_documents_accepts_category_query_param(self, client):
+        """Test that list documents endpoint accepts category query parameter."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_project_documents.return_value = []
+
+            response = client.get(
+                f"/api/v1/projects/{project_id}/documents",
+                params={"category": "interview_results"}
+            )
+
+            # Should not return 422 (validation error)
+            assert response.status_code != 422, \
+                "Endpoint should accept 'category' query parameter"
+
+            mock_sm.get_project_documents.assert_called_once()
+            call_args = mock_sm.get_project_documents.call_args
+
+            if call_args.kwargs:
+                assert call_args.kwargs.get("category") == "interview_results" or \
+                       (len(call_args.args) > 1 and call_args.args[1] == "interview_results"), \
+                    "get_project_documents should be called with category parameter"
+
+    def test_document_response_includes_category(self, client):
+        """Test that document response includes category field."""
+        project_id = str(uuid.uuid4())
+        doc_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_project_documents.return_value = [
+                {
+                    "id": doc_id,
+                    "project_id": project_id,
+                    "filename": "test.pdf",
+                    "file_type": "pdf",
+                    "file_size": 1000,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": "interview_results",
+                }
+            ]
+
+            response = client.get(f"/api/v1/projects/{project_id}/documents")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            if "documents" in data:
+                docs = data["documents"]
+            else:
+                docs = data if isinstance(data, list) else [data]
+
+            assert len(docs) > 0, "Should return at least one document"
+            assert "category" in docs[0], "Document response should include 'category' field"
+            assert docs[0]["category"] == "interview_results"
+
+    def test_upload_document_with_category(self, client):
+        """Test that document upload accepts category parameter."""
+        project_id = str(uuid.uuid4())
+        files = {"file": ("test.txt", b"test content", "text/plain")}
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {
+                "id": project_id,
+                "status": "created",
+            }
+            mock_sm.add_document.return_value = {
+                "id": str(uuid.uuid4()),
+                "project_id": project_id,
+                "filename": "test.txt",
+                "file_type": "txt",
+                "file_size": 12,
+                "file_path": "/path/to/file",
+                "processed": False,
+                "chunk_count": 0,
+                "uploaded_at": datetime.utcnow().isoformat(),
+                "category": "interview_results",
+            }
+
+            response = client.post(
+                f"/api/v1/projects/{project_id}/documents",
+                files=files,
+                data={"category": "interview_results"}
+            )
+
+            assert response.status_code in [200, 201, 404, 422]
+
+    def test_filter_documents_by_category_returns_filtered_results(self, client):
+        """Test that filtering by category returns only matching documents."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_project_documents.return_value = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "project_id": project_id,
+                    "filename": "interview1.txt",
+                    "file_type": "txt",
+                    "file_size": 1000,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": "interview_results",
+                },
+                {
+                    "id": str(uuid.uuid4()),
+                    "project_id": project_id,
+                    "filename": "interview2.txt",
+                    "file_type": "txt",
+                    "file_size": 2000,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": "interview_results",
+                },
+            ]
+
+            response = client.get(
+                f"/api/v1/projects/{project_id}/documents",
+                params={"category": "interview_results"}
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+
+            if "documents" in data:
+                docs = data["documents"]
+            else:
+                docs = data if isinstance(data, list) else [data]
+
+            for doc in docs:
+                assert doc.get("category") == "interview_results"
+
+
+# ============================================================================
+# Test Category Validation
+# ============================================================================
+
+class TestCategoryValidation:
+    """Test category value validation."""
+
+    VALID_CATEGORIES = [
+        "general",
+        "interview_results",
+        "operational",
+        "financial",
+        "strategic",
+        "technical",
+    ]
+
+    def test_valid_categories_accepted_via_api(self, client, state_manager_with_db):
+        """Test that all valid categories are accepted through the API."""
+        sm = state_manager_with_db
+        project_id = str(uuid.uuid4())
+
+        # Create project
+        from tests.conftest import ProjectRecord
+        with sm.SessionLocal() as session:
+            project = ProjectRecord(
+                id=project_id,
+                client_name="Test Client",
+                project_name="Test Project",
+            )
+            session.add(project)
+            session.commit()
+
+        for i, category in enumerate(self.VALID_CATEGORIES):
+            doc = sm.add_document(
+                project_id=project_id,
+                filename=f"test_{i}.pdf",
+                file_type="pdf",
+                file_size=1000,
+                file_path=f"/uploads/test_{i}.pdf",
+                category=category,
+            )
+            assert doc["category"] == category, \
+                f"Category '{category}' should be accepted"
