@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from src.services.workflow import get_workflow
@@ -348,6 +349,66 @@ async def get_interview_script(project_id: str):
         target_roles=script.get("target_roles", []) if script else [],
         estimated_duration_minutes=script.get("estimated_duration_minutes", 60) if script else 0,
     )
+
+
+@router.get(
+    "/workflow/{project_id}/interview-script/markdown",
+    response_class=PlainTextResponse,
+    summary="Export interview script as Markdown",
+    description="Export the interview script in Markdown format. Users can convert to PDF/DOCX using external tools if needed.",
+)
+async def get_interview_script_markdown(project_id: str):
+    """
+    Export the interview script as Markdown.
+
+    This is the only supported export format. Users can convert to
+    PDF or DOCX using external tools like pandoc if needed.
+    """
+    from src.models.schemas import InterviewScript, InterviewQuestion
+
+    project = state_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    thread_id = project.get("thread_id")
+    if not thread_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interview script not yet generated",
+        )
+
+    workflow = get_workflow()
+    state = workflow.get_state(thread_id)
+
+    if not state or not state.get("interview_script"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interview script not yet generated",
+        )
+
+    script_data = state.get("interview_script")
+
+    # Convert questions to InterviewQuestion objects
+    questions = [
+        InterviewQuestion(**q) if isinstance(q, dict) else q
+        for q in script_data.get("questions", [])
+    ]
+
+    # Create InterviewScript object
+    script = InterviewScript(
+        project_id=script_data.get("project_id", project_id),
+        target_departments=script_data.get("target_departments", []),
+        target_roles=script_data.get("target_roles", []),
+        introduction=script_data.get("introduction", ""),
+        questions=questions,
+        closing_notes=script_data.get("closing_notes", ""),
+        estimated_duration_minutes=script_data.get("estimated_duration_minutes", 60),
+    )
+
+    return script.to_markdown()
 
 
 @router.get(

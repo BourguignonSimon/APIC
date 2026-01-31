@@ -421,6 +421,23 @@ def page_project_detail():
             st.markdown("#### Closing Notes")
             st.markdown(script.get("closing_notes", ""))
 
+            # Download as Markdown
+            st.divider()
+            st.markdown("### Export Script")
+            st.caption("Download as Markdown. Convert to PDF/DOCX using external tools like pandoc if needed.")
+
+            # Fetch markdown from API
+            md_response = requests.get(
+                f"{API_BASE_URL}/workflow/{project_id}/interview-script/markdown"
+            )
+            if md_response.ok:
+                st.download_button(
+                    label="Download as Markdown",
+                    data=md_response.text,
+                    file_name=f"interview_script_{project_id}.md",
+                    mime="text/markdown",
+                )
+
             # Transcript submission
             st.divider()
             st.markdown("### Submit Interview Transcript")

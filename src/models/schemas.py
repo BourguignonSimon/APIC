@@ -150,7 +150,12 @@ class InterviewQuestion(BaseModel):
 
 
 class InterviewScript(BaseModel):
-    """Complete interview script output from Node 3."""
+    """
+    Complete interview script output from Node 3.
+
+    Output format: Markdown only. Users can convert to PDF/DOCX using
+    external tools (pandoc, etc.) if needed.
+    """
     project_id: str
     target_departments: List[str]
     target_roles: List[str] = Field(
@@ -171,6 +176,62 @@ class InterviewScript(BaseModel):
         description="Estimated interview duration"
     )
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def to_markdown(self) -> str:
+        """
+        Export the interview script as Markdown.
+
+        This is the only supported output format. Users can convert
+        to PDF or DOCX using external tools like pandoc if needed.
+        """
+        lines = [
+            "# Interview Script",
+            "",
+            f"**Project ID:** {self.project_id}",
+            f"**Target Departments:** {', '.join(self.target_departments)}",
+            f"**Target Roles:** {', '.join(self.target_roles)}",
+            f"**Estimated Duration:** {self.estimated_duration_minutes} minutes",
+            f"**Generated:** {self.generated_at.strftime('%Y-%m-%d %H:%M')}",
+            "",
+            "---",
+            "",
+            "## Introduction",
+            "",
+            self.introduction,
+            "",
+            "---",
+            "",
+            "## Interview Questions",
+            "",
+        ]
+
+        for i, q in enumerate(self.questions, 1):
+            lines.extend([
+                f"### Question {i} ({q.role})",
+                "",
+                f"**Question:** {q.question}",
+                "",
+                f"**Intent:** {q.intent}",
+                "",
+            ])
+            if q.follow_ups:
+                lines.append("**Follow-up Questions:**")
+                for fu in q.follow_ups:
+                    lines.append(f"- {fu}")
+                lines.append("")
+            if q.related_hypothesis_id:
+                lines.append(f"*Related Hypothesis: {q.related_hypothesis_id}*")
+                lines.append("")
+
+        lines.extend([
+            "---",
+            "",
+            "## Closing Notes",
+            "",
+            self.closing_notes,
+        ])
+
+        return "\n".join(lines)
 
 
 # ============================================================================
