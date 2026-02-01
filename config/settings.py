@@ -11,14 +11,53 @@ Pydantic's BaseSettings is used for:
 
 Usage:
     from config.settings import settings
-    api_key = settings.OPENAI_API_KEY
+    api_key = settings.GOOGLE_API_KEY  # Gemini is the default provider
 """
 
-import os
-from typing import Optional
-from pathlib import Path
+from typing import Optional, Dict
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import BaseModel, Field
+
+
+# =============================================================================
+# Agent Configuration Schema
+# =============================================================================
+
+
+class ModelConfig(BaseModel):
+    """Configuration for LLM model settings (uses global provider)"""
+
+    temperature: Optional[float] = Field(
+        None, ge=0.0, le=2.0, description="Temperature for sampling"
+    )
+    max_tokens: Optional[int] = Field(
+        None, gt=0, description="Maximum tokens to generate"
+    )
+
+
+class PromptConfig(BaseModel):
+    """Configuration for agent prompts"""
+
+    system: Optional[str] = Field(None, description="System prompt/role definition")
+    templates: Optional[Dict[str, str]] = Field(
+        default_factory=dict, description="Named prompt templates"
+    )
+
+
+class AgentConfig(BaseModel):
+    """Configuration for a single agent"""
+
+    name: str = Field(..., description="Agent name")
+    enabled: bool = Field(True, description="Whether the agent is enabled")
+    model: Optional[ModelConfig] = Field(
+        None, description="Model configuration for this agent"
+    )
+    prompts: Optional[PromptConfig] = Field(
+        None, description="Prompt configuration for this agent"
+    )
+
+    class Config:
+        extra = "allow"  # Allow additional configuration fields
 
 
 class Settings(BaseSettings):
@@ -44,8 +83,8 @@ class Settings(BaseSettings):
     # =========================================================================
     # API Keys for LLM Providers
     # =========================================================================
-    # At least one API key should be configured to use the application.
-    # Each provider requires its own API key obtained from their platform.
+    # GOOGLE_API_KEY is required for the default Gemini provider.
+    # Set DEFAULT_LLM_PROVIDER env var to switch to a different provider.
 
     # OpenAI API key - Get from https://platform.openai.com/api-keys
     OPENAI_API_KEY: Optional[str] = Field(default=None)
@@ -60,10 +99,11 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM (Large Language Model) Configuration
     # =========================================================================
-    # Settings that control which AI model is used and how it behaves
+    # Gemini is the default provider. Switch globally via DEFAULT_LLM_PROVIDER env var.
 
-    # Default provider: "openai", "anthropic", or "google"
-    DEFAULT_LLM_PROVIDER: str = Field(default="openai")
+    # Default LLM provider - Set via LLM_PROVIDER env var to switch globally
+    # Supported: "google" (default), "openai", "anthropic"
+    DEFAULT_LLM_PROVIDER: str = Field(default="google")
 
     # Model identifiers for each provider
     OPENAI_MODEL: str = Field(default="gpt-4o")
@@ -75,20 +115,13 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = Field(default=4096)  # Maximum response length
 
     # =========================================================================
-    # Agent Configuration
+    # Vector Database (ChromaDB)
     # =========================================================================
-    # Path to agent configuration file (YAML) for per-agent model and prompt settings
-    AGENT_CONFIG_PATH: str = Field(default="config/agents.yaml")
+    # ChromaDB is used for semantic search over document embeddings.
+    # Completely free and open-source, no API keys required.
 
-    # =========================================================================
-    # Vector Database (Pinecone)
-    # =========================================================================
-    # Pinecone is used for semantic search over document embeddings.
-    # Get your API key from https://www.pinecone.io/
-
-    PINECONE_API_KEY: Optional[str] = Field(default=None)
-    PINECONE_ENVIRONMENT: str = Field(default="us-east-1")  # Your Pinecone region
-    PINECONE_INDEX_NAME: str = Field(default="apic-knowledge")  # Index for storing vectors
+    CHROMA_PERSIST_DIR: str = Field(default="./chroma_db")  # Directory for ChromaDB storage
+    CHROMA_COLLECTION_NAME: str = Field(default="apic-knowledge")  # Collection for storing vectors
 
     # =========================================================================
     # PostgreSQL Database
@@ -176,17 +209,107 @@ def get_settings() -> Settings:
     return settings
 
 
-def get_agent_config():
+# =============================================================================
+# Default Agent Configurations
+# =============================================================================
+# These defaults were previously stored in config/agents.yaml
+# Override per-agent settings by modifying these values
+
+DEFAULT_AGENT_CONFIGS: Dict[str, dict] = {
+    "ingestion": {
+        "name": "IngestionAgent",
+        "enabled": True,
+        "model": {"temperature": 0.3, "max_tokens": 2000},
+        "prompts": {
+            "system": "You are a document processing expert. Your role is to analyze documents and extract key information.\nFocus on identifying main themes, processes, and potential inefficiencies.\n",
+            "templates": {
+                "summary": "Analyze the following document and provide a concise summary.\nFocus on:\n- Main topics and themes\n- Key processes described\n- Any mentioned inefficiencies or pain points\n- Important stakeholders or departments\n\nDocument: {content}\n\nProvide a clear, structured summary.\n"
+            },
+        },
+    },
+    "hypothesis": {
+        "name": "HypothesisGeneratorAgent",
+        "enabled": True,
+        "model": {"temperature": 0.7, "max_tokens": 3000},
+        "prompts": {
+            "system": "You are an expert management consultant specializing in process optimization and operational efficiency.\nYour expertise includes identifying inefficiencies in business operations, technology gaps, and workflow bottlenecks.\n",
+            "templates": {
+                "generate_hypotheses": "Based on the following documents, identify potential inefficiencies and areas for improvement.\n\nDocuments:\n{documents}\n\nGenerate hypotheses about:\n1. Manual processes that could be automated\n2. Communication gaps between teams\n3. Data entry inefficiencies\n4. Approval bottlenecks\n5. Technology gaps or underutilization\n\nReturn a JSON array of hypotheses with fields: category, description, severity, and evidence.\n"
+            },
+        },
+    },
+    "interview": {
+        "name": "InterviewArchitectAgent",
+        "enabled": True,
+        "model": {"temperature": 0.7, "max_tokens": 3000},
+        "prompts": {
+            "system": "You are an expert management consultant who designs effective interview scripts.\nYour interviews uncover process inefficiencies and gather insights from stakeholders.\n",
+            "templates": {
+                "determine_roles": "Based on these hypotheses, determine which roles should be interviewed:\n\nHypotheses:\n{hypotheses}\n\nReturn a JSON array of roles with their departments and why they should be interviewed.\n",
+                "generate_questions": "Create interview questions for the {role} role to investigate:\n\nHypotheses:\n{hypotheses}\n\nGenerate 8-10 open-ended questions that will help validate or refute these hypotheses.\nReturn a JSON array of question objects.\n",
+            },
+        },
+    },
+    "gap_analyst": {
+        "name": "GapAnalystAgent",
+        "enabled": True,
+        "model": {"temperature": 0.5, "max_tokens": 4000},
+        "prompts": {
+            "system": "You are a process analysis expert specializing in identifying gaps between documented procedures and actual practices.\nYou excel at analyzing SOPs, interview transcripts, and identifying discrepancies.\n",
+            "templates": {
+                "analyze_gaps": "Compare the standard operating procedures with the interview transcript to identify gaps:\n\nSOPs:\n{sops}\n\nInterview Transcript:\n{transcript}\n\nIdentify:\n1. Processes described in SOPs but not followed in practice\n2. Undocumented processes revealed in interviews\n3. Workarounds and shadow processes\n4. Technology gaps\n5. Training or knowledge gaps\n\nReturn a detailed JSON analysis of gaps found.\n"
+            },
+        },
+    },
+    "solution": {
+        "name": "SolutionArchitectAgent",
+        "enabled": True,
+        "model": {"temperature": 0.6, "max_tokens": 4000},
+        "prompts": {
+            "system": "You are a solutions architect specializing in business process automation and optimization.\nYou recommend practical, implementable solutions with clear ROI and implementation paths.\n",
+            "templates": {
+                "recommend_solutions": "Based on the identified gaps and inefficiencies, recommend solutions:\n\nGaps:\n{gaps}\n\nHypotheses:\n{hypotheses}\n\nFor each major issue, provide:\n1. Recommended solution (technology, process change, training)\n2. Expected benefits and ROI\n3. Implementation complexity (Low/Medium/High)\n4. Timeline estimate\n5. Dependencies and prerequisites\n\nReturn structured JSON recommendations.\n"
+            },
+        },
+    },
+    "reporting": {
+        "name": "ReportingAgent",
+        "enabled": True,
+        "model": {"temperature": 0.5, "max_tokens": 8000},
+        "prompts": {
+            "system": "You are an expert consultant report writer. You create clear, executive-level reports\nthat communicate findings and recommendations effectively to C-suite audiences.\n",
+            "templates": {
+                "executive_summary": "Create an executive summary of the analysis:\n\nHypotheses: {hypotheses}\nGaps: {gaps}\nSolutions: {solutions}\n\nWrite a compelling 2-3 paragraph executive summary highlighting:\n- Key findings\n- Critical inefficiencies discovered\n- Top recommendations\n- Expected business impact\n",
+                "roadmap": "Create an implementation roadmap based on:\n\nSolutions: {solutions}\n\nOrganize recommendations into:\n- Quick wins (0-3 months)\n- Medium-term initiatives (3-6 months)\n- Long-term strategic changes (6-12 months)\n\nFor each phase, list initiatives with brief descriptions and expected impact.\n",
+            },
+        },
+    },
+}
+
+
+class AgentConfigRegistry(BaseModel):
+    """Registry of all agent configurations"""
+
+    version: str = Field("1.0", description="Configuration schema version")
+    agents: Dict[str, AgentConfig] = Field(
+        default_factory=dict, description="Agent configurations by name"
+    )
+
+    def get_agent_config(self, agent_name: str) -> Optional[AgentConfig]:
+        """Get configuration for a specific agent"""
+        return self.agents.get(agent_name)
+
+
+def get_agent_config() -> AgentConfigRegistry:
     """
     Get the agent configuration registry.
 
-    Loads agent configurations from the YAML file specified in settings.
-    Returns empty registry if file doesn't exist.
+    Returns the default agent configurations defined in this module.
 
     Returns:
         AgentConfigRegistry: Registry containing all agent configurations
     """
-    from config.agent_config import AgentConfigRegistry
-
-    config_path = Path(settings.AGENT_CONFIG_PATH)
-    return AgentConfigRegistry.load_from_file(config_path)
+    agents = {}
+    for agent_name, config_dict in DEFAULT_AGENT_CONFIGS.items():
+        agents[agent_name] = AgentConfig(**config_dict)
+    return AgentConfigRegistry(agents=agents)

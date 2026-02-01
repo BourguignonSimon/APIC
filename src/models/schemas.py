@@ -29,16 +29,8 @@ class ProjectStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class Severity(str, Enum):
-    """Severity level for pain points."""
-    LOW = "Low"
-    MEDIUM = "Medium"
-    HIGH = "High"
-    CRITICAL = "Critical"
-
-
-class Complexity(str, Enum):
-    """Implementation complexity level."""
+class Priority(str, Enum):
+    """Priority level for pain points and implementation complexity."""
     LOW = "Low"
     MEDIUM = "Medium"
     HIGH = "High"
@@ -89,12 +81,14 @@ class Project(BaseModel):
 # ============================================================================
 
 class Document(BaseModel):
-    """Model for uploaded documents."""
+    """Model for uploaded documents and URLs."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
     filename: str
-    file_type: str  # pdf, docx, txt, etc.
-    file_size: int  # bytes
+    file_type: str  # pdf, docx, txt, url, etc.
+    file_size: int = 0  # bytes (0 for URLs)
+    source_type: str = "file"  # "file" or "url"
+    source_url: Optional[str] = None  # URL if source_type is "url"
     chunk_count: int = 0
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     processed: bool = False
@@ -114,10 +108,6 @@ class Hypothesis(BaseModel):
         default_factory=list,
         description="Quotes or references from source documents"
     )
-    indicators: List[str] = Field(
-        default_factory=list,
-        description="Keywords/patterns that triggered this hypothesis"
-    )
     confidence: float = Field(
         default=0.5,
         ge=0.0,
@@ -133,38 +123,6 @@ class Hypothesis(BaseModel):
 # ============================================================================
 # Node 3: Interview Architect Models
 # ============================================================================
-
-class CustomerContext(BaseModel):
-    """Customer context derived from ingested data analysis."""
-    business_overview: str = Field(
-        default="",
-        description="Overview of the customer's business and industry"
-    )
-    organization_structure: str = Field(
-        default="",
-        description="Summary of relevant organizational structure"
-    )
-    current_challenges: List[str] = Field(
-        default_factory=list,
-        description="Key challenges identified from data analysis"
-    )
-    key_processes: List[str] = Field(
-        default_factory=list,
-        description="Main processes identified for review"
-    )
-    stakeholders: List[str] = Field(
-        default_factory=list,
-        description="Key stakeholders identified from documents"
-    )
-    industry_context: str = Field(
-        default="",
-        description="Industry-specific context and considerations"
-    )
-    data_sources_summary: str = Field(
-        default="",
-        description="Summary of analyzed data sources"
-    )
-
 
 class DiagnosticLead(BaseModel):
     """A lead/hypothesis to be validated during the interview."""
@@ -209,10 +167,34 @@ class InterviewScript(BaseModel):
         default_factory=list,
         description="Recommended roles to interview"
     )
-    # Customer Context Section
-    customer_context: Optional[CustomerContext] = Field(
-        default=None,
-        description="Customer context derived from data analysis"
+    # Customer Context fields (flattened from CustomerContext)
+    customer_business_overview: str = Field(
+        default="",
+        description="Overview of the customer's business and industry"
+    )
+    customer_organization_structure: str = Field(
+        default="",
+        description="Summary of relevant organizational structure"
+    )
+    customer_challenges: List[str] = Field(
+        default_factory=list,
+        description="Key challenges identified from data analysis"
+    )
+    customer_key_processes: List[str] = Field(
+        default_factory=list,
+        description="Main processes identified for review"
+    )
+    customer_stakeholders: List[str] = Field(
+        default_factory=list,
+        description="Key stakeholders identified from documents"
+    )
+    customer_industry_context: str = Field(
+        default="",
+        description="Industry-specific context and considerations"
+    )
+    customer_data_sources_summary: str = Field(
+        default="",
+        description="Summary of analyzed data sources"
     )
     # Diagnostic Form - Leads to validate
     diagnostic_leads: List[DiagnosticLead] = Field(
@@ -260,14 +242,14 @@ class AnalysisResult(BaseModel):
     """Full analysis result combining gap and solution (Output of Node 4/5)."""
     process_step: str
     observed_behavior: str
-    pain_point_severity: Severity
+    pain_point_priority: Priority
     proposed_solution: str
     tech_stack_recommendation: List[str]
     estimated_roi_hours: int = Field(
         ...,
         description="Estimated hours saved per month"
     )
-    implementation_complexity: Complexity = Complexity.MEDIUM
+    implementation_priority: Priority = Priority.MEDIUM
     priority_score: float = Field(
         default=0.0,
         ge=0.0,
@@ -296,16 +278,6 @@ class SolutionRecommendation(BaseModel):
 # Node 6: Report Models
 # ============================================================================
 
-class ExecutiveSummary(BaseModel):
-    """Executive summary section of the report."""
-    overview: str
-    key_findings: List[str]
-    top_recommendations: List[str]
-    total_potential_savings: float
-    total_implementation_cost: float
-    overall_roi_percentage: float
-
-
 class CurrentVsFutureState(BaseModel):
     """Comparison table entry."""
     process_area: str
@@ -319,13 +291,20 @@ class Report(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
     title: str
-    executive_summary: ExecutiveSummary
-    hypotheses: List[Hypothesis]
-    interview_insights: List[str]
-    gap_analyses: List[GapAnalysisItem]
-    solutions: List[AnalysisResult]
-    current_vs_future: List[CurrentVsFutureState]
-    implementation_roadmap: List[Dict[str, Any]]
+    # Executive summary fields (flattened from ExecutiveSummary)
+    summary_overview: str = Field(default="", description="Executive summary overview")
+    key_findings: List[str] = Field(default_factory=list, description="Key findings from analysis")
+    top_recommendations: List[str] = Field(default_factory=list, description="Top recommendations")
+    total_potential_savings: float = Field(default=0.0, description="Total potential annual savings")
+    total_implementation_cost: float = Field(default=0.0, description="Total implementation cost estimate")
+    overall_roi_percentage: float = Field(default=0.0, description="Overall ROI percentage")
+    # Analysis results
+    hypotheses: List[Hypothesis] = Field(default_factory=list)
+    interview_insights: List[str] = Field(default_factory=list)
+    gap_analyses: List[GapAnalysisItem] = Field(default_factory=list)
+    solutions: List[AnalysisResult] = Field(default_factory=list)
+    current_vs_future: List[CurrentVsFutureState] = Field(default_factory=list)
+    implementation_roadmap: List[Dict[str, Any]] = Field(default_factory=list)
     appendix: Optional[Dict[str, Any]] = None
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -404,29 +383,6 @@ class ValidationError(BaseModel):
     error_code: Optional[str] = None
 
 
-class WebhookEvent(str, Enum):
-    """Types of webhook events."""
-    WORKFLOW_CREATED = "workflow.created"
-    WORKFLOW_STATE_CHANGED = "workflow.state_changed"
-    WORKFLOW_SUSPENDED = "workflow.suspended"
-    WORKFLOW_RESUMED = "workflow.resumed"
-    WORKFLOW_COMPLETED = "workflow.completed"
-    WORKFLOW_FAILED = "workflow.failed"
-    DOCUMENT_UPLOADED = "document.uploaded"
-    DOCUMENT_PROCESSED = "document.processed"
-
-
-class WebhookConfig(BaseModel):
-    """Configuration for a webhook endpoint."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    project_id: str
-    url: str
-    events: List[WebhookEvent]
-    secret: Optional[str] = None
-    active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 class BulkUploadResult(BaseModel):
     """Result of a bulk document upload operation."""
     total: int
@@ -443,16 +399,3 @@ class PaginatedResponse(BaseModel):
     page_size: int
     total_pages: int
     items: List[Any]
-
-
-class AnalyticsSummary(BaseModel):
-    """Analytics summary for dashboard."""
-    total_projects: int
-    completed_projects: int
-    active_projects: int
-    failed_projects: int
-    average_completion_time: Optional[float] = None
-    total_hours_saved: Optional[float] = None
-    total_solutions_recommended: int
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None

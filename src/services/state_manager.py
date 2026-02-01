@@ -1,69 +1,25 @@
 """
 State Manager
-Handles state persistence to PostgreSQL for the human breakpoint.
+Handles project and document persistence to PostgreSQL.
+
+Note: Workflow state is managed by LangGraph's built-in checkpointing.
+This module focuses on project metadata and document management.
 """
 
-import json
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 
-
-def serialize_state_data(data: Any) -> Any:
-    """
-    Recursively serialize data for JSON storage.
-
-    Converts datetime objects to ISO format strings and handles
-    nested dictionaries and lists.
-
-    Args:
-        data: Data to serialize
-
-    Returns:
-        JSON-serializable data
-    """
-    if isinstance(data, datetime):
-        return data.isoformat()
-    elif isinstance(data, dict):
-        return {key: serialize_state_data(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [serialize_state_data(item) for item in data]
-    elif hasattr(data, 'model_dump'):
-        # Handle Pydantic models
-        return serialize_state_data(data.model_dump())
-    elif hasattr(data, 'dict'):
-        # Handle older Pydantic models (v1)
-        return serialize_state_data(data.dict())
-    return data
-
 from sqlalchemy import create_engine, Column, String, DateTime, Text, Boolean, JSON, text, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
-
-
-class ProjectState(Base):
-    """Database model for project state persistence."""
-
-    __tablename__ = "project_states"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    project_id = Column(String(36), unique=True, index=True, nullable=False)
-    thread_id = Column(String(36), unique=True, index=True, nullable=False)
-    state_data = Column(JSON, nullable=False)
-    current_node = Column(String(50), nullable=False, default="start")
-    is_suspended = Column(Boolean, default=False)
-    suspension_reason = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ProjectRecord(Base):
@@ -78,12 +34,13 @@ class ProjectRecord(Base):
     target_departments = Column(JSON, default=list)
     status = Column(String(50), default="created")
     vector_namespace = Column(String(100), nullable=True)
+    thread_id = Column(String(36), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class DocumentRecord(Base):
-    """Database model for uploaded documents."""
+    """Database model for uploaded documents and URLs."""
 
     __tablename__ = "documents"
 
@@ -92,7 +49,9 @@ class DocumentRecord(Base):
     filename = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False)
     file_size = Column(String(50), nullable=False)
-    file_path = Column(String(500), nullable=False)
+    file_path = Column(String(500), nullable=False, default="")
+    source_type = Column(String(20), default="file")  # "file" or "url"
+    source_url = Column(String(2000), nullable=True)  # URL if source_type is "url"
     chunk_count = Column(String(50), default="0")
     processed = Column(Boolean, default=False)
     content_summary = Column(Text, nullable=True)
@@ -102,12 +61,12 @@ class DocumentRecord(Base):
 
 class StateManager:
     """
-    Manages workflow state persistence to PostgreSQL.
+    Manages project and document persistence to PostgreSQL.
 
-    Enables the "human breakpoint" by:
-    1. Saving state when workflow suspends
-    2. Loading state when workflow resumes
-    3. Tracking project progress
+    Workflow state is handled by LangGraph's built-in checkpointing.
+    This class focuses on:
+    1. Project metadata management
+    2. Document tracking
     """
 
     def __init__(self, database_url: Optional[str] = None):
@@ -152,6 +111,19 @@ class StateManager:
                     conn.commit()
                 logger.info("Migration complete: 'category' column added")
 
+        # Check if projects table exists and add thread_id if missing
+        if "projects" in inspector.get_table_names():
+            columns = [col["name"] for col in inspector.get_columns("projects")]
+
+            if "thread_id" not in columns:
+                logger.info("Running migration: Adding 'thread_id' column to projects table")
+                with self.engine.connect() as conn:
+                    conn.execute(
+                        text("ALTER TABLE projects ADD COLUMN thread_id VARCHAR(36)")
+                    )
+                    conn.commit()
+                logger.info("Migration complete: 'thread_id' column added")
+
     def get_session(self) -> Session:
         """Get a database session."""
         return self.SessionLocal()
@@ -180,7 +152,6 @@ class StateManager:
             Created project data
         """
         project_id = str(uuid.uuid4())
-        thread_id = str(uuid.uuid4())
 
         with self.get_session() as session:
             project = ProjectRecord(
@@ -202,7 +173,7 @@ class StateManager:
                 "target_departments": project.target_departments,
                 "status": project.status,
                 "vector_namespace": project.vector_namespace,
-                "thread_id": thread_id,
+                "thread_id": project.thread_id,
                 "created_at": project.created_at.isoformat(),
             }
 
@@ -229,6 +200,7 @@ class StateManager:
                 "target_departments": project.target_departments,
                 "status": project.status,
                 "vector_namespace": project.vector_namespace,
+                "thread_id": project.thread_id,
                 "created_at": project.created_at.isoformat(),
                 "updated_at": project.updated_at.isoformat(),
             }
@@ -271,71 +243,20 @@ class StateManager:
                 project.updated_at = datetime.utcnow()
                 session.commit()
 
-    # =========================================================================
-    # State Management
-    # =========================================================================
-
-    def save_state(
-        self,
-        project_id: str,
-        thread_id: str,
-        state: Dict[str, Any],
-    ) -> None:
+    def set_thread_id(self, project_id: str, thread_id: str) -> None:
         """
-        Save workflow state.
+        Set the thread ID for a project (links to LangGraph checkpointer).
 
         Args:
             project_id: Project ID
-            thread_id: Thread ID
-            state: State data
-        """
-        # Serialize state data to ensure datetime objects are JSON-compatible
-        serialized_state = serialize_state_data(state)
-
-        with self.get_session() as session:
-            existing = session.query(ProjectState).filter_by(
-                project_id=project_id
-            ).first()
-
-            if existing:
-                existing.state_data = serialized_state
-                existing.current_node = state.get("current_node", "unknown")
-                existing.is_suspended = state.get("is_suspended", False)
-                existing.suspension_reason = state.get("suspension_reason")
-                existing.updated_at = datetime.utcnow()
-            else:
-                project_state = ProjectState(
-                    project_id=project_id,
-                    thread_id=thread_id,
-                    state_data=serialized_state,
-                    current_node=state.get("current_node", "start"),
-                    is_suspended=state.get("is_suspended", False),
-                    suspension_reason=state.get("suspension_reason"),
-                )
-                session.add(project_state)
-
-            session.commit()
-            logger.info(f"State saved for project {project_id}")
-
-    def load_state(self, project_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Load workflow state.
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            State data or None
+            thread_id: LangGraph thread ID
         """
         with self.get_session() as session:
-            project_state = session.query(ProjectState).filter_by(
-                project_id=project_id
-            ).first()
-
-            if not project_state:
-                return None
-
-            return project_state.state_data
+            project = session.query(ProjectRecord).filter_by(id=project_id).first()
+            if project:
+                project.thread_id = thread_id
+                project.updated_at = datetime.utcnow()
+                session.commit()
 
     def get_thread_id(self, project_id: str) -> Optional[str]:
         """
@@ -348,41 +269,33 @@ class StateManager:
             Thread ID or None
         """
         with self.get_session() as session:
-            project_state = session.query(ProjectState).filter_by(
-                project_id=project_id
-            ).first()
+            project = session.query(ProjectRecord).filter_by(id=project_id).first()
+            return project.thread_id if project else None
 
-            return project_state.thread_id if project_state else None
-
-    def get_suspended_projects(self) -> List[Dict[str, Any]]:
+    def get_projects_by_status(self, status: str) -> List[Dict[str, Any]]:
         """
-        Get all suspended projects awaiting input.
+        Get all projects with a specific status.
+
+        Args:
+            status: Project status to filter by
 
         Returns:
-            List of suspended projects
+            List of projects with the given status
         """
         with self.get_session() as session:
-            suspended = session.query(ProjectState).filter_by(
-                is_suspended=True
-            ).all()
+            projects = session.query(ProjectRecord).filter_by(status=status).all()
 
-            results = []
-            for ps in suspended:
-                project = session.query(ProjectRecord).filter_by(
-                    id=ps.project_id
-                ).first()
-
-                results.append({
-                    "project_id": ps.project_id,
-                    "thread_id": ps.thread_id,
-                    "project_name": project.project_name if project else "Unknown",
-                    "client_name": project.client_name if project else "Unknown",
-                    "current_node": ps.current_node,
-                    "suspension_reason": ps.suspension_reason,
-                    "suspended_at": ps.updated_at.isoformat(),
-                })
-
-            return results
+            return [
+                {
+                    "id": p.id,
+                    "client_name": p.client_name,
+                    "project_name": p.project_name,
+                    "status": p.status,
+                    "thread_id": p.thread_id,
+                    "created_at": p.created_at.isoformat(),
+                }
+                for p in projects
+            ]
 
     # =========================================================================
     # Document Management
@@ -396,6 +309,8 @@ class StateManager:
         file_size: int,
         file_path: str,
         category: str = "general",
+        source_type: str = "file",
+        source_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add a document record.
@@ -403,10 +318,12 @@ class StateManager:
         Args:
             project_id: Project ID
             filename: File name
-            file_type: File type (pdf, docx, etc.)
-            file_size: File size in bytes
-            file_path: Path to stored file
+            file_type: File type (pdf, docx, url, etc.)
+            file_size: File size in bytes (0 for URLs)
+            file_path: Path to stored file (empty for URLs)
             category: Document category (general, interview_results, etc.)
+            source_type: "file" or "url"
+            source_url: URL if source_type is "url"
 
         Returns:
             Document record
@@ -419,6 +336,8 @@ class StateManager:
                 file_size=str(file_size),
                 file_path=file_path,
                 category=category,
+                source_type=source_type,
+                source_url=source_url,
             )
             session.add(doc)
             session.commit()
@@ -430,6 +349,8 @@ class StateManager:
                 "file_type": doc.file_type,
                 "file_size": int(doc.file_size),
                 "file_path": doc.file_path,
+                "source_type": doc.source_type,
+                "source_url": doc.source_url,
                 "processed": doc.processed,
                 "chunk_count": int(doc.chunk_count),
                 "uploaded_at": doc.uploaded_at.isoformat(),
@@ -464,6 +385,8 @@ class StateManager:
                     "filename": d.filename,
                     "file_type": d.file_type,
                     "file_size": int(d.file_size),
+                    "source_type": d.source_type,
+                    "source_url": d.source_url,
                     "processed": d.processed,
                     "chunk_count": int(d.chunk_count),
                     "uploaded_at": d.uploaded_at.isoformat(),

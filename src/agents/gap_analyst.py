@@ -9,13 +9,12 @@ import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseAgent, get_llm
+from .base import BaseAgent
 from .ingestion import IngestionAgent
 from src.models.schemas import (
     Hypothesis,
     GapAnalysisItem,
     TaskCategory,
-    Severity,
     GraphState,
 )
 from config.settings import settings

@@ -860,19 +860,15 @@ class RequirementsAnalyzer:
         files = {
             "requirements.txt": "",
             "requirements-dev.txt": "",
-            "requirements-optional.txt": "",
         }
 
-        for pkg in categories["core"]:
+        # Core and optional packages go into production requirements
+        for pkg in categories["core"] + categories.get("optional", []):
             version = packages.get(pkg, "")
             files["requirements.txt"] += f"{pkg}{version}\n"
 
         for pkg in categories["development"]:
             version = packages.get(pkg, "")
             files["requirements-dev.txt"] += f"{pkg}{version}\n"
-
-        for pkg in categories["optional"]:
-            version = packages.get(pkg, "")
-            files["requirements-optional.txt"] += f"{pkg}{version}\n"
 
         return files
