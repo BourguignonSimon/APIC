@@ -4,10 +4,7 @@ The Consultant Graph - manages the multi-agent workflow with human breakpoint.
 """
 
 import logging
-from typing import Any, Dict, Optional, TypedDict, Annotated
-from datetime import datetime
-import json
-import operator
+from typing import Any, Dict, Optional, TypedDict
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -20,8 +17,7 @@ from src.agents import (
     SolutionArchitectAgent,
     ReportingAgent,
 )
-from src.models.schemas import GraphState, Project, ProjectStatus
-from config.settings import settings, get_agent_config
+from config.settings import get_agent_config
 
 logger = logging.getLogger(__name__)
 

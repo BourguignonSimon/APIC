@@ -5,20 +5,27 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: apic-postgres
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: apic
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-apic}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql:ro
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # FastAPI Backend
   api:
@@ -26,22 +33,39 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: apic-api
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/apic
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-apic}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - CHROMA_PERSIST_DIR=/app/chroma_db
-      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-google}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8501,http://localhost:8502}
+      - DEBUG=${DEBUG:-false}
     volumes:
       - ./uploads:/app/uploads
       - ./reports:/app/reports
       - ./scripts:/app/scripts
       - ./chroma_db:/app/chroma_db
     ports:
-      - "8001:8000"
+      - "${API_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   # Streamlit Frontend
   frontend:
@@ -49,12 +73,30 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: apic-frontend
+    env_file:
+      - .env
     environment:
       - API_BASE_URL=http://api:8000/api/v1
     ports:
-      - "8502:8501"
+      - "${STREAMLIT_PORT:-8502}:8501"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
 volumes:
   postgres_data:
+
+networks:
+  default:
+    name: apic-network

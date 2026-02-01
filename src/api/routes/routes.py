@@ -5,15 +5,19 @@ Consolidated endpoints for projects, documents, and workflow management.
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 import uuid
 import zipfile
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Depends,
     File,
     Form,
     HTTPException,
@@ -22,7 +26,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from config.settings import settings
 from src.services.interview_script_generator import get_interview_script_generator
@@ -32,9 +36,72 @@ from src.services.workflow import ConsultantGraph
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Global instances
-state_manager = StateManager()
-consultant_graph = ConsultantGraph()
+
+# ============================================================================
+# Security Utilities
+# ============================================================================
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize a filename to prevent path traversal attacks.
+
+    Args:
+        filename: Original filename
+
+    Returns:
+        Sanitized filename safe for filesystem operations
+    """
+    # Remove any path components (prevents ../../../etc/passwd)
+    filename = os.path.basename(filename)
+    # Remove any null bytes
+    filename = filename.replace('\x00', '')
+    # Remove characters problematic for filesystems
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+    # Remove leading/trailing dots and spaces (Windows issues)
+    filename = filename.strip('. ')
+    # Ensure filename is not empty
+    if not filename:
+        filename = f"unnamed_{uuid.uuid4().hex[:8]}"
+    # Limit filename length
+    if len(filename) > 255:
+        name, ext = os.path.splitext(filename)
+        filename = name[:255 - len(ext)] + ext
+    return filename
+
+
+def validate_uuid(value: str) -> str:
+    """Validate that a string is a valid UUID."""
+    try:
+        uuid.UUID(value)
+        return value
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid UUID format: {value}"
+        )
+
+
+# ============================================================================
+# Dependency Injection
+# ============================================================================
+
+
+@lru_cache()
+def get_state_manager() -> StateManager:
+    """Dependency injection for StateManager (cached singleton)."""
+    return StateManager()
+
+
+@lru_cache()
+def get_consultant_graph() -> ConsultantGraph:
+    """Dependency injection for ConsultantGraph (cached singleton)."""
+    return ConsultantGraph()
+
+
+# Backward compatibility - keep global instances but use DI where possible
+state_manager = get_state_manager()
+consultant_graph = get_consultant_graph()
 
 
 # ============================================================================
@@ -401,7 +468,10 @@ async def upload_documents(
     uploaded_docs = []
 
     for file in files:
-        if not validate_file_type(file.filename):
+        # Sanitize filename to prevent path traversal attacks
+        safe_filename = sanitize_filename(file.filename)
+
+        if not validate_file_type(safe_filename):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"File type not allowed: {file.filename}",
@@ -414,14 +484,23 @@ async def upload_documents(
         if file_size > settings.MAX_FILE_SIZE_MB * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File too large: {file.filename}",
+                detail=f"File too large: {file.filename} (max {settings.MAX_FILE_SIZE_MB}MB)",
             )
 
-        file_path = os.path.join(upload_dir, file.filename)
+        # Use sanitized filename for file path
+        file_path = os.path.join(upload_dir, safe_filename)
+
+        # Handle duplicate filenames by appending a unique suffix
+        if os.path.exists(file_path):
+            name, ext = os.path.splitext(safe_filename)
+            safe_filename = f"{name}_{uuid.uuid4().hex[:8]}{ext}"
+            file_path = os.path.join(upload_dir, safe_filename)
+
         try:
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         except Exception as e:
+            logger.error(f"Failed to save file {safe_filename}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to save file: {str(e)}",
@@ -429,8 +508,8 @@ async def upload_documents(
 
         doc = state_manager.add_document(
             project_id=project_id,
-            filename=file.filename,
-            file_type=get_file_extension(file.filename),
+            filename=safe_filename,
+            file_type=get_file_extension(safe_filename),
             file_size=file_size,
             file_path=file_path,
             category=category,
@@ -493,14 +572,47 @@ async def get_document(project_id: str, document_id: str):
     tags=["Documents"],
 )
 async def delete_document(project_id: str, document_id: str):
-    """Delete a document."""
+    """Delete a document with path traversal protection."""
+    # Validate UUID formats
+    validate_uuid(project_id)
+    validate_uuid(document_id)
+
+    # Verify project exists
+    project = state_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
     docs = state_manager.get_project_documents(project_id)
     for doc in docs:
         if doc["id"] == document_id:
-            file_path = os.path.join(settings.UPLOAD_DIR, project_id, doc["filename"])
+            # Sanitize filename and construct safe path
+            safe_filename = sanitize_filename(doc["filename"])
+            upload_base = os.path.abspath(settings.UPLOAD_DIR)
+            file_path = os.path.abspath(os.path.join(upload_base, project_id, safe_filename))
+
+            # Security: Verify file_path is within upload directory (prevent path traversal)
+            if not file_path.startswith(upload_base):
+                logger.warning(f"Attempted path traversal attack: {file_path}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid file path",
+                )
+
             if os.path.exists(file_path):
-                os.remove(file_path)
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Deleted document file: {file_path}")
+                except OSError as e:
+                    logger.error(f"Failed to delete file {file_path}: {e}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to delete file",
+                    )
             return
+
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Document {document_id} not found",
@@ -788,12 +900,25 @@ async def export_interview_script(
     )
 
 
+def _cleanup_temp_file(path: str) -> None:
+    """Helper function to clean up temporary files."""
+    try:
+        if os.path.exists(path):
+            os.unlink(path)
+            logger.debug(f"Cleaned up temp file: {path}")
+    except OSError as e:
+        logger.warning(f"Failed to clean up temp file {path}: {e}")
+
+
 @router.get(
     "/workflow/{project_id}/interview-script/export/all",
     summary="Export all interview script formats as ZIP",
     tags=["Workflow"],
 )
-async def export_all_interview_scripts(project_id: str):
+async def export_all_interview_scripts(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+):
     """Download all interview script formats in a single ZIP file."""
     project = state_manager.get_project(project_id)
     if not project:
@@ -840,8 +965,9 @@ async def export_all_interview_scripts(project_id: str):
         )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    client_name = project_data.get("client_name", project_id)
-    zip_filename = f"interview_script_{client_name}_{timestamp}.zip"
+    # Sanitize client name for filename
+    safe_client_name = re.sub(r'[^\w\-]', '_', project_data.get("client_name", project_id))
+    zip_filename = f"interview_script_{safe_client_name}_{timestamp}.zip"
 
     temp_fd, temp_path = tempfile.mkstemp(suffix=".zip")
     os.close(temp_fd)
@@ -851,18 +977,18 @@ async def export_all_interview_scripts(project_id: str):
             for fmt, file_path in file_paths.items():
                 zipf.write(file_path, arcname=os.path.basename(file_path))
 
+        # Schedule cleanup after response is sent (fixed: use injected BackgroundTasks)
+        background_tasks.add_task(_cleanup_temp_file, temp_path)
+
         return FileResponse(
             path=temp_path,
             media_type="application/zip",
             filename=zip_filename,
-            headers={"Content-Disposition": f"attachment; filename={zip_filename}"},
-            background=BackgroundTasks().add_task(
-                lambda: os.unlink(temp_path) if os.path.exists(temp_path) else None
-            ),
+            headers={"Content-Disposition": f"attachment; filename=\"{zip_filename}\""},
         )
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+        # Clean up on error
+        _cleanup_temp_file(temp_path)
         logger.error(f"Failed to create ZIP file: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
