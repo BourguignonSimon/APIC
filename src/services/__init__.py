@@ -1,6 +1,10 @@
 """
 APIC Services Module
 Core business logic and workflow orchestration.
+
+State management is simplified:
+- Project/document metadata: StateManager (PostgreSQL)
+- Workflow state: LangGraph's built-in checkpointing
 """
 
 # Use lazy imports to avoid import cascade issues during testing
@@ -9,6 +13,7 @@ Core business logic and workflow orchestration.
 __all__ = [
     "ConsultantGraph",
     "create_workflow",
+    "create_checkpointer",
     "StateManager",
     "get_llm",
     "get_embeddings",
@@ -23,6 +28,9 @@ def __getattr__(name):
     elif name == "create_workflow":
         from .workflow import create_workflow
         return create_workflow
+    elif name == "create_checkpointer":
+        from .workflow import create_checkpointer
+        return create_checkpointer
     elif name == "StateManager":
         from .state_manager import StateManager
         return StateManager

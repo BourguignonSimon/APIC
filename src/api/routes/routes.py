@@ -1,6 +1,8 @@
 """
 API Routes
 Consolidated endpoints for projects, documents, and workflow management.
+
+State is managed through LangGraph's built-in checkpointing.
 """
 
 import logging
@@ -80,7 +82,7 @@ class SuspendedProjectResponse(BaseModel):
     """Response model for suspended projects."""
 
     project_id: str
-    thread_id: str
+    thread_id: Optional[str]
     project_name: str
     client_name: str
     current_node: str
@@ -262,6 +264,22 @@ def get_project_upload_dir(project_id: str) -> str:
     return upload_dir
 
 
+def get_workflow_state(project_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get workflow state from LangGraph checkpointer.
+
+    Args:
+        project_id: Project ID
+
+    Returns:
+        Workflow state or None
+    """
+    thread_id = state_manager.get_thread_id(project_id)
+    if not thread_id:
+        return None
+    return consultant_graph.get_state(thread_id)
+
+
 # ============================================================================
 # Project Endpoints
 # ============================================================================
@@ -318,8 +336,25 @@ async def list_projects():
 async def get_suspended_projects():
     """Get all projects waiting at the human breakpoint."""
     try:
-        suspended = state_manager.get_suspended_projects()
-        return [SuspendedProjectResponse(**p) for p in suspended]
+        # Get projects with interview_ready status
+        suspended_projects = state_manager.get_projects_by_status("interview_ready")
+
+        results = []
+        for p in suspended_projects:
+            thread_id = p.get("thread_id")
+            workflow_status = consultant_graph.get_workflow_status(thread_id) if thread_id else {}
+
+            results.append(SuspendedProjectResponse(
+                project_id=p["id"],
+                thread_id=thread_id,
+                project_name=p["project_name"],
+                client_name=p["client_name"],
+                current_node=workflow_status.get("current_node", "interview"),
+                suspension_reason=workflow_status.get("suspension_reason", "Awaiting interview transcript"),
+                suspended_at=p["created_at"],
+            ))
+
+        return results
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -341,7 +376,6 @@ async def get_project(project_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project {project_id} not found",
         )
-    project["thread_id"] = state_manager.get_thread_id(project_id)
     return ProjectResponse(**project)
 
 
@@ -543,7 +577,8 @@ async def start_analysis(request: StartAnalysisRequest, background_tasks: Backgr
             thread_id=thread_id,
         )
 
-        state_manager.save_state(project_id, thread_id, final_state)
+        # Store thread_id in project record (LangGraph handles state persistence)
+        state_manager.set_thread_id(project_id, thread_id)
         state_manager.update_project_status(project_id, "interview_ready")
 
         return StartAnalysisResponse(
@@ -587,20 +622,20 @@ async def submit_transcript(request: SubmitTranscriptRequest, background_tasks: 
             detail="No active workflow found. Start analysis first.",
         )
 
-    current_state = state_manager.load_state(project_id)
-    if not current_state or not current_state.get("is_suspended"):
+    # Check if workflow is suspended using LangGraph state
+    if not consultant_graph.is_suspended(thread_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workflow is not suspended. Cannot submit transcript.",
         )
 
     try:
-        final_state = await consultant_graph.resume_with_transcript(
+        await consultant_graph.resume_with_transcript(
             thread_id=thread_id,
             transcript=request.transcript,
         )
 
-        state_manager.save_state(project_id, thread_id, final_state)
+        # LangGraph handles state persistence automatically
         state_manager.update_project_status(project_id, "completed")
 
         return SubmitTranscriptResponse(
@@ -623,7 +658,7 @@ async def submit_transcript(request: SubmitTranscriptRequest, background_tasks: 
     summary="Get workflow status",
     tags=["Workflow"],
 )
-async def get_workflow_status(project_id: str):
+async def get_workflow_status_endpoint(project_id: str):
     """Get current workflow status."""
     project = state_manager.get_project(project_id)
     if not project:
@@ -632,10 +667,9 @@ async def get_workflow_status(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
     thread_id = state_manager.get_thread_id(project_id)
 
-    if not state:
+    if not thread_id:
         return WorkflowStatusResponse(
             project_id=project_id,
             thread_id=None,
@@ -646,14 +680,17 @@ async def get_workflow_status(project_id: str):
             errors=[],
         )
 
+    # Get status from LangGraph checkpointer
+    status_info = consultant_graph.get_workflow_status(thread_id)
+
     return WorkflowStatusResponse(
         project_id=project_id,
         thread_id=thread_id,
-        current_node=state.get("current_node", "unknown"),
-        is_suspended=state.get("is_suspended", False),
-        suspension_reason=state.get("suspension_reason"),
-        messages=state.get("messages", []),
-        errors=state.get("errors", []),
+        current_node=status_info.get("current_node", "unknown"),
+        is_suspended=status_info.get("is_suspended", False),
+        suspension_reason=status_info.get("suspension_reason"),
+        messages=status_info.get("messages", []),
+        errors=status_info.get("errors", []),
     )
 
 
@@ -672,7 +709,9 @@ async def get_interview_script(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    # Get state from LangGraph checkpointer
+    state = get_workflow_state(project_id)
+
     if not state:
         return InterviewScriptResponse(
             project_id=project_id,
@@ -740,7 +779,7 @@ async def export_interview_script(project_id: str):
     file_path = generator.get_script_file(project_id)
 
     if not file_path or not os.path.exists(file_path):
-        state = state_manager.load_state(project_id)
+        state = get_workflow_state(project_id)
         if state and state.get("interview_script"):
             try:
                 script_data = state["interview_script"]
@@ -782,7 +821,7 @@ async def regenerate_interview_script_file(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    state = get_workflow_state(project_id)
     if not state or not state.get("interview_script"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -795,11 +834,6 @@ async def regenerate_interview_script_file(project_id: str):
         project_data = state.get("project", project)
 
         file_path = generator.generate(script_data, project_data)
-
-        state["interview_script_file"] = file_path
-        thread_id = state_manager.get_thread_id(project_id)
-        if thread_id:
-            state_manager.save_state(project_id, thread_id, state)
 
         return InterviewScriptRegenerateResponse(
             project_id=project_id,
@@ -829,7 +863,7 @@ async def get_report(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    state = get_workflow_state(project_id)
 
     if not state:
         return ReportResponse(
@@ -870,7 +904,7 @@ async def get_hypotheses(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    state = get_workflow_state(project_id)
 
     if not state:
         return HypothesesResponse(project_id=project_id, hypotheses=[], count=0)
@@ -897,7 +931,7 @@ async def get_gaps(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    state = get_workflow_state(project_id)
 
     if not state:
         return GapsResponse(project_id=project_id, gap_analyses=[], count=0)
@@ -924,7 +958,7 @@ async def get_solutions(project_id: str):
             detail=f"Project {project_id} not found",
         )
 
-    state = state_manager.load_state(project_id)
+    state = get_workflow_state(project_id)
 
     if not state:
         return SolutionsResponse(
