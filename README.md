@@ -147,54 +147,47 @@ docker-compose up --build
 - **API Documentation**: http://localhost:8000/docs
 - **API Health Check**: http://localhost:8000/health
 
-## Usage Guide
+## Usage Guide - The 5-Step Process
 
-### 1. Create a Project
+### Step 1: Document
 
-Navigate to "New Project" and provide:
-- Client name
-- Project name
-- Description
-- Target departments
-
-### 2. Upload Documents
-
-Upload relevant documents:
-- Standard Operating Procedures (SOPs)
-- Process documentation
-- Policy documents
-- Training materials
+Upload all available source data about the company:
+- Company documents (SOPs, manuals, policies)
+- Website content and public information
+- Process documentation and training materials
+- Any materials provided by the client
 
 Supported formats: PDF, DOCX, DOC, TXT, PPTX, XLSX
 
-### 3. Start Analysis
+### Step 2: Interview (Agent Analysis)
 
-Click "Start Analysis" to:
-- Ingest and process documents
+Click "Start Analysis" to have AI agents:
+- Analyze all uploaded source documents
 - Generate hypotheses about inefficiencies
-- Create a tailored interview script
+- Create a tailored interview script for the customer
 
-### 4. Conduct Interview
+### Step 3: Interview Script
 
-Use the generated interview script to:
-- Interview key stakeholders
-- Capture actual processes and pain points
-- Document workarounds and hidden processes
+Review and use the generated interview script:
+- Role-specific questions for stakeholder interviews
+- Follow-up prompts for deeper insights
+- Conduct real interviews with the customer
 
-### 5. Submit Transcript
+### Step 4: Results
 
-Paste the interview transcript to resume analysis:
-- Gap analysis (SOP vs Reality)
-- Solution recommendations
-- ROI calculations
+Add interview results and generate analysis:
+- Submit interview transcripts and notes
+- Add any additional documents from interviews
+- AI generates gap analysis and solution recommendations
+- View ROI estimates and priority matrix
 
-### 6. Download Report
+### Step 5: Report
 
 Access the final deliverable:
-- Executive summary
+- Executive summary with key metrics
 - Current vs Future state comparison
 - Implementation roadmap
-- PDF report
+- Download professional PDF report
 
 ## Agent Configuration
 

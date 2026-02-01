@@ -156,35 +156,55 @@ def page_home():
         unsafe_allow_html=True
     )
 
-    col1, col2, col3 = st.columns(3)
+    # 5-Step Process Overview
+    st.markdown("### The 5-Step Process")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        st.markdown("### Step 1: Upload Documents")
+        st.markdown("#### Step 1: Document")
         st.markdown("""
-        Upload your process documentation:
-        - Standard Operating Procedures (SOPs)
-        - Process flow diagrams
-        - Policy documents
-        - Training materials
+        Upload all available source data:
+        - Company documents
+        - Website URLs
+        - SOPs & manuals
+        - Any public info
         """)
 
     with col2:
-        st.markdown("### Step 2: Review Interview Script")
+        st.markdown("#### Step 2: Interview")
         st.markdown("""
-        APIC will analyze your documents and generate:
-        - Hypotheses about inefficiencies
-        - Targeted interview questions
-        - Role-specific question sets
+        Agents analyze sources:
+        - Process documents
+        - Generate hypotheses
+        - Create interview script
         """)
 
     with col3:
-        st.markdown("### Step 3: Get Recommendations")
+        st.markdown("#### Step 3: Script")
         st.markdown("""
-        After the interview, receive:
-        - Gap analysis report
-        - Automation recommendations
-        - ROI estimates
-        - Implementation roadmap
+        Use the interview script:
+        - Role-specific questions
+        - Follow-up prompts
+        - Conduct interviews
+        """)
+
+    with col4:
+        st.markdown("#### Step 4: Results")
+        st.markdown("""
+        Add interview results:
+        - Upload transcripts
+        - Additional documents
+        - Generate analysis
+        """)
+
+    with col5:
+        st.markdown("#### Step 5: Report")
+        st.markdown("""
+        Final deliverable:
+        - Executive summary
+        - ROI projections
+        - PDF report
         """)
 
     st.divider()
@@ -307,16 +327,17 @@ def page_project_detail():
 
     st.divider()
 
-    # Tabs for different sections
+    # Tabs for different sections - 5-step process
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Documents", "Analysis", "Interview", "Results", "Report"
+        "1. Document", "2. Interview", "3. Interview Script", "4. Results", "5. Report"
     ])
 
     project_id = project.get('id')
 
-    # Documents Tab
+    # Step 1: Document Tab - Upload source data
     with tab1:
-        st.markdown("### Upload Documents")
+        st.markdown("### Step 1: Upload Source Data")
+        st.markdown("Upload all available company information: documents, manuals, process descriptions, etc.")
 
         uploaded_files = st.file_uploader(
             "Upload SOPs, process documents, etc.",
@@ -350,9 +371,10 @@ def page_project_detail():
         else:
             st.info("No documents uploaded yet.")
 
-    # Analysis Tab
+    # Step 2: Interview Tab - Agents analyze and create script
     with tab2:
-        st.markdown("### Start Analysis")
+        st.markdown("### Step 2: Agent Analysis")
+        st.markdown("AI agents analyze your source documents to identify inefficiencies and generate an interview script.")
 
         docs_response = api_request("GET", f"/projects/{project_id}/documents")
         has_docs = docs_response and len(docs_response.get("documents", [])) > 0
@@ -393,9 +415,10 @@ def page_project_detail():
                             for e in hypo['evidence'][:3]:
                                 st.markdown(f"- {e}")
 
-    # Interview Tab
+    # Step 3: Interview Script Tab - Display the script to use
     with tab3:
-        st.markdown("### Interview Script")
+        st.markdown("### Step 3: Interview Script")
+        st.markdown("Use this script to conduct interviews with the customer. After completing the interviews, go to **Step 4: Results** to submit your findings.")
 
         script_response = api_request("GET", f"/workflow/{project_id}/interview-script")
 
@@ -421,17 +444,38 @@ def page_project_detail():
             st.markdown("#### Closing Notes")
             st.markdown(script.get("closing_notes", ""))
 
-            # Transcript submission
             st.divider()
-            st.markdown("### Submit Interview Transcript")
+            st.success("Script ready! Conduct your interviews, then proceed to **Step 4: Results** to submit the transcript.")
+        else:
+            st.info("Interview script not yet generated. Complete Step 2 (Interview) first.")
+
+    # Step 4: Results Tab - Submit interview results and view analysis
+    with tab4:
+        st.markdown("### Step 4: Submit Interview Results")
+        st.markdown("Add your interview transcripts and any additional documents obtained during interviews. The AI agents will analyze these to generate gap analysis and recommendations.")
+
+        # Check if we have an interview script (required before submitting transcript)
+        script_response = api_request("GET", f"/workflow/{project_id}/interview-script")
+        has_script = script_response and script_response.get("interview_script")
+
+        # Check if results already exist
+        gaps_response = api_request("GET", f"/workflow/{project_id}/gaps")
+        has_results = gaps_response and gaps_response.get("gap_analyses")
+
+        if not has_script:
+            st.warning("Please complete Step 2 (Interview) and Step 3 (Interview Script) before submitting results.")
+        elif not has_results:
+            # Show transcript submission form
+            st.markdown("#### Submit Interview Transcript")
+            st.markdown("Paste the interview notes or transcript from your customer interviews:")
 
             transcript = st.text_area(
-                "Paste the interview transcript here",
+                "Interview Transcript",
                 height=300,
-                placeholder="Enter the interview notes or transcript..."
+                placeholder="Enter the interview notes, responses, and observations from your interviews with the customer..."
             )
 
-            if st.button("Submit Transcript and Continue", use_container_width=True):
+            if st.button("Submit and Generate Analysis", use_container_width=True):
                 if not transcript:
                     st.error("Please enter the interview transcript.")
                 else:
@@ -446,22 +490,20 @@ def page_project_detail():
                         )
 
                         if result:
-                            st.success("Analysis complete! Check the Results tab.")
+                            st.success("Analysis complete! View the results below and check the Report tab.")
                             updated = api_request("GET", f"/projects/{project_id}")
                             if updated:
                                 st.session_state.current_project = updated
                             st.rerun()
-        else:
-            st.info("Interview script not yet generated. Start analysis first.")
 
-    # Results Tab
-    with tab4:
-        st.markdown("### Analysis Results")
+        # Show results if available
+        if has_results:
+            st.divider()
+            st.markdown("### Analysis Results")
 
-        # Gap Analysis
-        gaps_response = api_request("GET", f"/workflow/{project_id}/gaps")
-        if gaps_response and gaps_response.get("gap_analyses"):
+            # Gap Analysis
             st.markdown("#### Gap Analysis")
+            st.markdown("Comparison between documented SOPs and actual observed behavior:")
             for gap in gaps_response["gap_analyses"]:
                 with st.expander(f"{gap.get('process_step', 'Unknown')}"):
                     st.markdown(f"**SOP says:** {gap.get('sop_description', 'N/A')}")
@@ -469,23 +511,21 @@ def page_project_detail():
                     st.markdown(f"**Gap:** {gap.get('gap_description', 'N/A')}")
                     st.markdown(f"**Impact:** {gap.get('impact', 'N/A')}")
 
-        # Solutions
-        solutions_response = api_request("GET", f"/workflow/{project_id}/solutions")
-        if solutions_response and solutions_response.get("solutions"):
-            st.markdown("#### Recommended Solutions")
-            for sol in solutions_response["solutions"]:
-                with st.expander(f"{sol.get('process_step', 'Unknown')} - {sol.get('pain_point_severity', 'N/A')} Priority"):
-                    st.markdown(f"**Solution:** {sol.get('proposed_solution', 'N/A')}")
-                    st.markdown(f"**Tech Stack:** {', '.join(sol.get('tech_stack_recommendation', []))}")
-                    st.markdown(f"**ROI:** {sol.get('estimated_roi_hours', 0)} hours/month saved")
-                    st.markdown(f"**Complexity:** {sol.get('implementation_complexity', 'N/A')}")
+            # Solutions
+            solutions_response = api_request("GET", f"/workflow/{project_id}/solutions")
+            if solutions_response and solutions_response.get("solutions"):
+                st.markdown("#### Recommended Solutions")
+                for sol in solutions_response["solutions"]:
+                    with st.expander(f"{sol.get('process_step', 'Unknown')} - {sol.get('pain_point_severity', 'N/A')} Priority"):
+                        st.markdown(f"**Solution:** {sol.get('proposed_solution', 'N/A')}")
+                        st.markdown(f"**Tech Stack:** {', '.join(sol.get('tech_stack_recommendation', []))}")
+                        st.markdown(f"**ROI:** {sol.get('estimated_roi_hours', 0)} hours/month saved")
+                        st.markdown(f"**Complexity:** {sol.get('implementation_complexity', 'N/A')}")
 
-        if not gaps_response or not gaps_response.get("gap_analyses"):
-            st.info("Results not yet available. Complete the interview process first.")
-
-    # Report Tab
+    # Step 5: Report Tab - Display final report
     with tab5:
-        st.markdown("### Final Report")
+        st.markdown("### Step 5: Final Report")
+        st.markdown("The comprehensive report with all findings, recommendations, and ROI projections.")
 
         report_response = api_request("GET", f"/workflow/{project_id}/report")
 
