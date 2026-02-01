@@ -6,11 +6,9 @@ Consolidated endpoints for projects, documents, and workflow management.
 import logging
 import os
 import shutil
-import tempfile
 import uuid
-import zipfile
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -189,7 +187,7 @@ class InterviewScriptResponse(BaseModel):
     interview_script: Optional[Dict[str, Any]]
     target_roles: List[str]
     estimated_duration_minutes: int
-    script_files: Optional[Dict[str, Optional[str]]] = None
+    script_file: Optional[str] = None
 
 
 class InterviewScriptFileInfo(BaseModel):
@@ -197,7 +195,6 @@ class InterviewScriptFileInfo(BaseModel):
 
     filename: str
     path: str
-    format: str
     size_bytes: int
     created_at: str
     modified_at: str
@@ -208,7 +205,6 @@ class InterviewScriptFilesResponse(BaseModel):
 
     project_id: str
     files: List[InterviewScriptFileInfo]
-    available_formats: List[str]
 
 
 class InterviewScriptRegenerateResponse(BaseModel):
@@ -216,7 +212,7 @@ class InterviewScriptRegenerateResponse(BaseModel):
 
     project_id: str
     message: str
-    files: Dict[str, Optional[str]]
+    file: Optional[str]
 
 
 class HypothesesResponse(BaseModel):
@@ -683,22 +679,22 @@ async def get_interview_script(project_id: str):
             interview_script=None,
             target_roles=[],
             estimated_duration_minutes=0,
-            script_files=None,
+            script_file=None,
         )
 
     script = state.get("interview_script")
-    script_files = state.get("interview_script_files")
+    script_file = state.get("interview_script_file")
 
-    if not script_files and script:
+    if not script_file and script:
         generator = get_interview_script_generator()
-        script_files = generator.get_script_files(project_id)
+        script_file = generator.get_script_file(project_id)
 
     return InterviewScriptResponse(
         project_id=project_id,
         interview_script=script,
         target_roles=script.get("target_roles", []) if script else [],
         estimated_duration_minutes=script.get("estimated_duration_minutes", 60) if script else 0,
-        script_files=script_files,
+        script_file=script_file,
     )
 
 
@@ -723,20 +719,16 @@ async def list_interview_script_files(project_id: str):
     return InterviewScriptFilesResponse(
         project_id=project_id,
         files=[InterviewScriptFileInfo(**f) for f in files],
-        available_formats=["pdf", "docx", "markdown"],
     )
 
 
 @router.get(
-    "/workflow/{project_id}/interview-script/export/{format}",
+    "/workflow/{project_id}/interview-script/export",
     summary="Export interview script",
     tags=["Workflow"],
 )
-async def export_interview_script(
-    project_id: str,
-    format: Literal["pdf", "docx", "markdown"],
-):
-    """Download the interview script in the specified format."""
+async def export_interview_script(project_id: str):
+    """Download the interview script as Markdown."""
     project = state_manager.get_project(project_id)
     if not project:
         raise HTTPException(
@@ -745,8 +737,7 @@ async def export_interview_script(
         )
 
     generator = get_interview_script_generator()
-    script_files = generator.get_script_files(project_id)
-    file_path = script_files.get(format)
+    file_path = generator.get_script_file(project_id)
 
     if not file_path or not os.path.exists(file_path):
         state = state_manager.load_state(project_id)
@@ -754,18 +745,12 @@ async def export_interview_script(
             try:
                 script_data = state["interview_script"]
                 project_data = state.get("project", project)
-
-                if format == "pdf":
-                    file_path = generator.generate_pdf(script_data, project_data)
-                elif format == "docx":
-                    file_path = generator.generate_docx(script_data, project_data)
-                elif format == "markdown":
-                    file_path = generator.generate_markdown(script_data, project_data)
+                file_path = generator.generate_markdown(script_data, project_data)
             except Exception as e:
-                logger.error(f"Failed to generate {format} file: {e}")
+                logger.error(f"Failed to generate markdown file: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to generate {format} file: {str(e)}",
+                    detail=f"Failed to generate markdown file: {str(e)}",
                 )
         else:
             raise HTTPException(
@@ -773,111 +758,23 @@ async def export_interview_script(
                 detail="Interview script not found. Start analysis first.",
             )
 
-    media_types = {
-        "pdf": "application/pdf",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "markdown": "text/markdown",
-    }
-
     filename = os.path.basename(file_path)
     return FileResponse(
         path=file_path,
-        media_type=media_types.get(format, "application/octet-stream"),
+        media_type="text/markdown",
         filename=filename,
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
-@router.get(
-    "/workflow/{project_id}/interview-script/export/all",
-    summary="Export all interview script formats as ZIP",
-    tags=["Workflow"],
-)
-async def export_all_interview_scripts(project_id: str):
-    """Download all interview script formats in a single ZIP file."""
-    project = state_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found",
-        )
-
-    generator = get_interview_script_generator()
-    state = state_manager.load_state(project_id)
-
-    if not state or not state.get("interview_script"):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview script not found. Start analysis first.",
-        )
-
-    script_data = state["interview_script"]
-    project_data = state.get("project", project)
-
-    file_paths = {}
-    for fmt in ["pdf", "docx", "markdown"]:
-        try:
-            script_files = generator.get_script_files(project_id)
-            file_path = script_files.get(fmt)
-
-            if not file_path or not os.path.exists(file_path):
-                if fmt == "pdf":
-                    file_path = generator.generate_pdf(script_data, project_data)
-                elif fmt == "docx":
-                    file_path = generator.generate_docx(script_data, project_data)
-                elif fmt == "markdown":
-                    file_path = generator.generate_markdown(script_data, project_data)
-
-            if file_path and os.path.exists(file_path):
-                file_paths[fmt] = file_path
-        except Exception as e:
-            logger.error(f"Failed to generate {fmt} file: {e}")
-
-    if not file_paths:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate interview script files.",
-        )
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    client_name = project_data.get("client_name", project_id)
-    zip_filename = f"interview_script_{client_name}_{timestamp}.zip"
-
-    temp_fd, temp_path = tempfile.mkstemp(suffix=".zip")
-    os.close(temp_fd)
-
-    try:
-        with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for fmt, file_path in file_paths.items():
-                zipf.write(file_path, arcname=os.path.basename(file_path))
-
-        return FileResponse(
-            path=temp_path,
-            media_type="application/zip",
-            filename=zip_filename,
-            headers={"Content-Disposition": f"attachment; filename={zip_filename}"},
-            background=BackgroundTasks().add_task(
-                lambda: os.unlink(temp_path) if os.path.exists(temp_path) else None
-            ),
-        )
-    except Exception as e:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        logger.error(f"Failed to create ZIP file: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create ZIP file: {str(e)}",
-        )
-
-
 @router.post(
     "/workflow/{project_id}/interview-script/regenerate",
     response_model=InterviewScriptRegenerateResponse,
-    summary="Regenerate interview script files",
+    summary="Regenerate interview script file",
     tags=["Workflow"],
 )
-async def regenerate_interview_script_files(project_id: str):
-    """Regenerate interview script files from existing script data."""
+async def regenerate_interview_script_file(project_id: str):
+    """Regenerate interview script file from existing script data."""
     project = state_manager.get_project(project_id)
     if not project:
         raise HTTPException(
@@ -897,23 +794,23 @@ async def regenerate_interview_script_files(project_id: str):
         script_data = state["interview_script"]
         project_data = state.get("project", project)
 
-        file_paths = generator.generate_all_formats(script_data, project_data)
+        file_path = generator.generate(script_data, project_data)
 
-        state["interview_script_files"] = file_paths
+        state["interview_script_file"] = file_path
         thread_id = state_manager.get_thread_id(project_id)
         if thread_id:
             state_manager.save_state(project_id, thread_id, state)
 
         return InterviewScriptRegenerateResponse(
             project_id=project_id,
-            message="Interview script files regenerated successfully.",
-            files=file_paths,
+            message="Interview script file regenerated successfully.",
+            file=file_path,
         )
     except Exception as e:
-        logger.error(f"Failed to regenerate interview script files: {e}")
+        logger.error(f"Failed to regenerate interview script file: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to regenerate files: {str(e)}",
+            detail=f"Failed to regenerate file: {str(e)}",
         )
 
 
