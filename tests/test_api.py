@@ -1,23 +1,20 @@
 """
-Comprehensive tests for APIC API endpoints following TDD principles.
+Consolidated tests for APIC API endpoints.
+
+This module contains all API endpoint tests including:
+- Health and info endpoints
+- Project management endpoints
+- Document management endpoints
+- Workflow execution endpoints
+- Error handling
 """
 
 import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
-import json
 import uuid
 from datetime import datetime
 
-from src.api.main import create_app
 from src.models.schemas import ProjectStatus
-
-
-@pytest.fixture
-def client():
-    """Create a test client for the FastAPI application."""
-    app = create_app()
-    return TestClient(app)
 
 
 # ============================================================================
@@ -84,7 +81,7 @@ class TestProjectEndpoints:
             json={}
         )
 
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
 
     def test_get_projects_returns_list(self, client):
         """Test that getting projects returns a list."""
@@ -144,7 +141,6 @@ class TestDocumentEndpoints:
         """Test that document upload endpoint exists."""
         project_id = str(uuid.uuid4())
 
-        # Create a test file
         files = {
             "file": ("test.txt", b"test content", "text/plain")
         }
@@ -166,7 +162,6 @@ class TestDocumentEndpoints:
                 files=files
             )
 
-            # Should return 200/201 or 404 if project not found
             assert response.status_code in [200, 201, 404, 422]
 
     def test_get_project_documents_returns_list(self, client):
@@ -184,6 +179,55 @@ class TestDocumentEndpoints:
             if response.status_code == 200:
                 data = response.json()
                 assert isinstance(data, list)
+
+    def test_list_documents_accepts_category_query_param(self, client):
+        """Test that list documents endpoint accepts category query parameter."""
+        project_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_project_documents.return_value = []
+
+            response = client.get(
+                f"/api/v1/projects/{project_id}/documents",
+                params={"category": "interview_results"}
+            )
+
+            assert response.status_code != 422
+
+    def test_document_response_includes_category(self, client):
+        """Test that document response includes category field."""
+        project_id = str(uuid.uuid4())
+        doc_id = str(uuid.uuid4())
+
+        with patch('src.api.routes.documents.state_manager') as mock_sm:
+            mock_sm.get_project.return_value = {"id": project_id}
+            mock_sm.get_project_documents.return_value = [
+                {
+                    "id": doc_id,
+                    "project_id": project_id,
+                    "filename": "test.pdf",
+                    "file_type": "pdf",
+                    "file_size": 1000,
+                    "processed": False,
+                    "chunk_count": 0,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "category": "interview_results",
+                }
+            ]
+
+            response = client.get(f"/api/v1/projects/{project_id}/documents")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            if "documents" in data:
+                docs = data["documents"]
+            else:
+                docs = data if isinstance(data, list) else [data]
+
+            if len(docs) > 0:
+                assert "category" in docs[0]
 
 
 # ============================================================================
@@ -210,7 +254,6 @@ class TestWorkflowEndpoints:
                 json={"project_id": project_id}
             )
 
-            # Should return 200 or validation error
             assert response.status_code in [200, 422, 404, 500]
 
     def test_resume_workflow_endpoint_exists(self, client):
@@ -233,7 +276,6 @@ class TestWorkflowEndpoints:
                 }
             )
 
-            # Should return 200 or validation error
             assert response.status_code in [200, 422, 404, 500]
 
     def test_get_workflow_status_returns_status(self, client):
