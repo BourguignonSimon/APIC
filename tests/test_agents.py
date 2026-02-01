@@ -122,7 +122,7 @@ class TestInterviewArchitectAgent:
                         with patch.object(agent, '_estimate_duration', return_value=AsyncMock(return_value=60)()):
                             # Simplify by mocking entire flow
                             mock_script_gen = Mock()
-                            mock_script_gen.generate_all_formats = Mock(return_value={})
+                            mock_script_gen.generate = Mock(return_value="/path/to/script.md")
                             with patch('src.agents.interview.get_interview_script_generator', return_value=mock_script_gen):
                                 result = await agent.process(initial_state)
 
@@ -399,25 +399,20 @@ class TestInterviewScriptGeneration:
                 assert "Test Corp" in content
                 assert "How do you track expenses?" in content
 
-    def test_generate_all_formats(self, tmp_path, script_data, project_data):
-        """Test that all formats are generated."""
+    def test_generate(self, tmp_path, script_data, project_data):
+        """Test that markdown file is generated via generate method."""
         with patch('src.services.interview_script_generator.settings') as mock_settings:
             mock_settings.SCRIPTS_DIR = str(tmp_path / "scripts")
 
             from src.services.interview_script_generator import InterviewScriptGenerator
             generator = InterviewScriptGenerator()
 
-            paths = generator.generate_all_formats(script_data, project_data)
+            path = generator.generate(script_data, project_data)
 
-            # Should have entries for all formats
-            assert "markdown" in paths
-            assert paths["markdown"] is not None
-
-            # PDF and DOCX may fail due to missing dependencies, but markdown should work
-            if paths.get("pdf"):
-                assert os.path.exists(paths["pdf"])
-            if paths.get("docx"):
-                assert os.path.exists(paths["docx"])
+            # Should return a valid path
+            assert path is not None
+            assert path.endswith(".md")
+            assert os.path.exists(path)
 
     def test_list_all_scripts(self, tmp_path, script_data, project_data):
         """Test that all scripts can be listed."""
@@ -437,7 +432,7 @@ class TestInterviewScriptGeneration:
             assert len(scripts) >= 1
             assert "filename" in scripts[0]
             assert "path" in scripts[0]
-            assert "format" in scripts[0]
+            assert scripts[0]["filename"].endswith(".md")
 
 
 # ============================================================================

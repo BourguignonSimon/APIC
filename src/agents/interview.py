@@ -334,23 +334,21 @@ class InterviewArchitectAgent(BaseAgent):
             state["suspension_reason"] = "Awaiting interview transcript"
             state["current_node"] = "interview"
 
-            # Generate interview script files (PDF, DOCX, Markdown)
-            script_file_paths = {}
+            # Generate interview script file (Markdown)
+            script_file_path = None
             try:
                 generator = get_interview_script_generator()
                 project_data = state.get("project", {})
                 if isinstance(project_data, dict):
-                    script_file_paths = generator.generate_all_formats(
+                    script_file_path = generator.generate(
                         script_data,
                         project_data
                     )
-                    state["interview_script_files"] = script_file_paths
-                    self.log_info(
-                        f"Interview script files generated: {list(script_file_paths.keys())}"
-                    )
+                    state["interview_script_file"] = script_file_path
+                    self.log_info(f"Interview script file generated: {script_file_path}")
             except Exception as e:
-                self.log_error(f"Failed to generate script files: {e}")
-                state["interview_script_files"] = {}
+                self.log_error(f"Failed to generate script file: {e}")
+                state["interview_script_file"] = None
 
             state["messages"].append(
                 f"Generated interview script with {len(questions)} questions "
