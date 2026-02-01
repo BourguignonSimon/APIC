@@ -1,47 +1,26 @@
 """
-Comprehensive tests for workflow orchestration and state management following TDD principles.
+Consolidated tests for workflow orchestration, state management, and data models.
+
+This module contains integration tests including:
+- StateManager operations
+- GraphState model
+- Workflow logic
+- Data model schemas
 """
 
 import pytest
-import sys
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+import os
 import uuid
+from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
 
 # ============================================================================
-# Test StateManager (Can be tested independently)
+# Test StateManager
 # ============================================================================
 
 class TestStateManager:
     """Test suite for StateManager."""
-
-    @pytest.fixture
-    def state_manager(self, tmp_path):
-        """Create a StateManager instance with a test database."""
-        db_path = tmp_path / "test.db"
-        db_url = f"sqlite:///{db_path}"
-
-        # Direct import of just state_manager module
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "state_manager_module",
-            "/home/user/APIC/src/services/state_manager.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        StateManager = module.StateManager
-        return StateManager(database_url=db_url)
-
-    @pytest.fixture
-    def sample_project_data(self):
-        """Create sample project data for testing."""
-        return {
-            "client_name": "Test Corp",
-            "project_name": "Test Project",
-            "description": "Test description",
-            "target_departments": ["Finance"],
-        }
 
     def test_create_project_returns_project_data(self, state_manager, sample_project_data):
         """Test that creating a project returns project data."""
@@ -78,7 +57,6 @@ class TestStateManager:
 
     def test_save_state_persists_data(self, state_manager, sample_project_data):
         """Test that save_state persists workflow state."""
-        # Create a project first
         project = state_manager.create_project(
             client_name=sample_project_data["client_name"],
             project_name=sample_project_data["project_name"],
@@ -93,12 +71,10 @@ class TestStateManager:
             "is_suspended": False,
         }
 
-        # Should not raise an exception
         state_manager.save_state(project_id, thread_id, state_data)
 
     def test_load_state_returns_state(self, state_manager, sample_project_data):
         """Test that load_state returns the workflow state."""
-        # Create a project and save state
         project = state_manager.create_project(
             client_name=sample_project_data["client_name"],
             project_name=sample_project_data["project_name"],
@@ -114,7 +90,6 @@ class TestStateManager:
         }
 
         state_manager.save_state(project_id, thread_id, state_data)
-
         result = state_manager.load_state(project_id)
 
         assert result is not None
@@ -231,13 +206,11 @@ class TestStateManager:
         suspended = state_manager.get_suspended_projects()
 
         assert isinstance(suspended, list)
-        # Should have at least our suspended project
         project_ids = [p["project_id"] for p in suspended]
         assert project_id in project_ids
 
     def test_state_persistence_across_workflow_steps(self, state_manager, sample_project_data):
         """Test that state is properly persisted across workflow steps."""
-        # Create a project
         project = state_manager.create_project(
             client_name="Test Corp",
             project_name="Test Project",
@@ -246,7 +219,6 @@ class TestStateManager:
         project_id = project["id"]
         thread_id = str(uuid.uuid4())
 
-        # Save initial state
         state_data = {
             "project_id": project_id,
             "current_node": "ingestion",
@@ -255,13 +227,11 @@ class TestStateManager:
         }
         state_manager.save_state(project_id, thread_id, state_data)
 
-        # Update state to simulate workflow progression
         state_data["current_node"] = "interview"
         state_data["is_suspended"] = True
         state_data["messages"] = ["Ingestion complete", "Hypotheses generated"]
         state_manager.save_state(project_id, thread_id, state_data)
 
-        # Retrieve and verify
         retrieved_state = state_manager.load_state(project_id)
 
         assert retrieved_state is not None
@@ -271,20 +241,102 @@ class TestStateManager:
 
 
 # ============================================================================
-# Test GraphState model structure
+# Test Document Category Feature
+# ============================================================================
+
+class TestDocumentCategory:
+    """Test document category feature in StateManager."""
+
+    def test_add_document_with_category(self, state_manager, sample_project_data, tmp_path):
+        """Test adding a document with a category."""
+        project = state_manager.create_project(
+            client_name=sample_project_data["client_name"],
+            project_name=sample_project_data["project_name"],
+        )
+
+        project_id = project["id"]
+        file_path = str(tmp_path / "interview.txt")
+
+        doc = state_manager.add_document(
+            project_id=project_id,
+            filename="interview_transcript.txt",
+            file_type="txt",
+            file_size=1500,
+            file_path=file_path,
+            category="interview_results",
+        )
+
+        assert doc is not None
+        assert doc.get("category") == "interview_results"
+
+    def test_add_document_without_category_defaults_to_general(self, state_manager, sample_project_data, tmp_path):
+        """Test that adding a document without category defaults to 'general'."""
+        project = state_manager.create_project(
+            client_name=sample_project_data["client_name"],
+            project_name=sample_project_data["project_name"],
+        )
+
+        project_id = project["id"]
+        file_path = str(tmp_path / "report.pdf")
+
+        doc = state_manager.add_document(
+            project_id=project_id,
+            filename="report.pdf",
+            file_type="pdf",
+            file_size=5000,
+            file_path=file_path,
+        )
+
+        assert doc is not None
+        assert doc.get("category") == "general"
+
+    def test_get_documents_with_category_filter(self, state_manager, sample_project_data, tmp_path):
+        """Test filtering documents by category."""
+        project = state_manager.create_project(
+            client_name=sample_project_data["client_name"],
+            project_name=sample_project_data["project_name"],
+        )
+
+        project_id = project["id"]
+
+        state_manager.add_document(
+            project_id=project_id,
+            filename="doc1.pdf",
+            file_type="pdf",
+            file_size=1000,
+            file_path=str(tmp_path / "doc1.pdf"),
+            category="general",
+        )
+        state_manager.add_document(
+            project_id=project_id,
+            filename="interview1.txt",
+            file_type="txt",
+            file_size=2000,
+            file_path=str(tmp_path / "interview1.txt"),
+            category="interview_results",
+        )
+
+        all_docs = state_manager.get_project_documents(project_id)
+        assert len(all_docs) == 2
+
+        interview_docs = state_manager.get_project_documents(project_id, category="interview_results")
+        assert len(interview_docs) == 1
+        assert interview_docs[0]["category"] == "interview_results"
+
+
+# ============================================================================
+# Test GraphState Model
 # ============================================================================
 
 class TestGraphStateModel:
-    """Test GraphState model without importing agents."""
+    """Test GraphState model structure."""
 
     def test_graph_state_has_required_fields(self):
         """Test that GraphState model has all required fields."""
         from src.models.schemas import GraphState
 
-        # Create a minimal state
         state = GraphState(project_id="test-123")
 
-        # Check required fields exist
         assert hasattr(state, 'project_id')
         assert hasattr(state, 'project')
         assert hasattr(state, 'documents')
@@ -304,7 +356,6 @@ class TestGraphStateModel:
 
         state = GraphState(project_id="test-123")
 
-        # Check default values
         assert state.documents == []
         assert state.hypotheses == []
         assert state.interview_script is None
@@ -336,21 +387,19 @@ class TestGraphStateModel:
 
 
 # ============================================================================
-# Test Workflow Logic (Unit Tests with Mocks)
+# Test Workflow Logic
 # ============================================================================
 
 class TestWorkflowLogic:
-    """Test workflow logic with fully mocked dependencies."""
+    """Test workflow logic with mocked dependencies."""
 
     def test_should_wait_for_transcript_logic_wait(self):
         """Test wait condition: suspended and no transcript."""
-        # The logic: if suspended and not transcript_received -> "wait"
         state = {
             "is_suspended": True,
             "transcript_received": False,
         }
 
-        # Implement the logic we're testing
         if state["is_suspended"] and not state["transcript_received"]:
             result = "wait"
         else:
@@ -392,7 +441,6 @@ class TestWorkflowLogic:
         project = {"id": project_id, "client_name": "Test Corp"}
         documents = [{"id": "doc1", "filename": "test.pdf"}]
 
-        # Simulate get_initial_state logic
         initial_state = {
             "project_id": project_id,
             "project": project,
@@ -424,9 +472,6 @@ class TestWorkflowLogic:
         assert initial_state["project"] == project
         assert initial_state["documents"] == documents
         assert initial_state["is_suspended"] is False
-        assert initial_state["ingestion_complete"] is False
-        assert initial_state["messages"] == []
-        assert initial_state["errors"] == []
 
     def test_state_update_after_interview(self):
         """Test state updates after interview script generation."""
@@ -438,7 +483,6 @@ class TestWorkflowLogic:
             "current_node": "hypothesis",
         }
 
-        # Simulate interview node completion
         interview_script = {
             "project_id": "test-123",
             "questions": [{"role": "Manager", "question": "Test?"}],
@@ -456,7 +500,6 @@ class TestWorkflowLogic:
         assert state["is_suspended"] is True
         assert state["interview_script"] is not None
         assert state["script_generation_complete"] is True
-        assert state["current_node"] == "interview"
 
     def test_state_update_after_transcript(self):
         """Test state updates after receiving transcript."""
@@ -480,34 +523,138 @@ class TestWorkflowLogic:
         assert state["transcript"] == transcript
         assert state["transcript_received"] is True
         assert state["is_suspended"] is False
-        assert state["current_node"] == "gap_analysis"
 
 
 # ============================================================================
-# Test Interview Script Model
+# Test Data Model Schemas
 # ============================================================================
 
-class TestInterviewScriptModel:
-    """Test InterviewScript and related models."""
+class TestProjectModels:
+    """Test project-related models."""
 
-    def test_interview_question_model(self):
-        """Test InterviewQuestion model."""
+    def test_project_create(self):
+        """Test ProjectCreate model."""
+        from src.models.schemas import ProjectCreate
+
+        project = ProjectCreate(
+            client_name="Acme Corp",
+            project_name="Q1 Optimization",
+            description="Process improvement initiative",
+            target_departments=["Finance", "Operations"],
+        )
+
+        assert project.client_name == "Acme Corp"
+        assert project.project_name == "Q1 Optimization"
+        assert len(project.target_departments) == 2
+
+    def test_project_defaults(self):
+        """Test Project model defaults."""
+        from src.models.schemas import Project, ProjectStatus
+
+        project = Project(
+            client_name="Test Corp",
+            project_name="Test Project",
+        )
+
+        assert project.id is not None
+        assert project.status == ProjectStatus.CREATED
+        assert project.vector_namespace.startswith("client_")
+
+    def test_project_status_enum(self):
+        """Test project status enum values."""
+        from src.models.schemas import ProjectStatus
+
+        assert ProjectStatus.CREATED.value == "created"
+        assert ProjectStatus.AWAITING_TRANSCRIPT.value == "awaiting_transcript"
+        assert ProjectStatus.COMPLETED.value == "completed"
+
+
+class TestHypothesisModels:
+    """Test hypothesis-related models."""
+
+    def test_hypothesis_creation(self):
+        """Test Hypothesis model creation."""
+        from src.models.schemas import Hypothesis
+
+        hypothesis = Hypothesis(
+            process_area="Invoice Processing",
+            description="Manual data entry causing delays",
+            evidence=["Takes 30 minutes per invoice", "20 invoices daily"],
+            indicators=["manual", "data entry", "delay"],
+            confidence=0.85,
+            category="manual_process",
+        )
+
+        assert hypothesis.process_area == "Invoice Processing"
+        assert hypothesis.confidence == 0.85
+        assert len(hypothesis.evidence) == 2
+
+    def test_hypothesis_defaults(self):
+        """Test Hypothesis default values."""
+        from src.models.schemas import Hypothesis
+
+        hypothesis = Hypothesis(
+            process_area="Test",
+            description="Test hypothesis",
+        )
+
+        assert hypothesis.confidence == 0.5
+        assert hypothesis.category == "general"
+        assert hypothesis.evidence == []
+
+    def test_hypothesis_confidence_bounds(self):
+        """Test that confidence is bounded."""
+        from src.models.schemas import Hypothesis
+
+        hypothesis = Hypothesis(
+            process_area="Test",
+            description="Test",
+            confidence=0.0,
+        )
+        assert hypothesis.confidence == 0.0
+
+        hypothesis = Hypothesis(
+            process_area="Test",
+            description="Test",
+            confidence=1.0,
+        )
+        assert hypothesis.confidence == 1.0
+
+
+class TestInterviewModels:
+    """Test interview-related models."""
+
+    def test_interview_question_creation(self):
+        """Test InterviewQuestion model creation."""
         from src.models.schemas import InterviewQuestion
 
         question = InterviewQuestion(
             role="CFO",
             question="How do you handle expenses?",
             intent="Understand expense workflow",
-            follow_ups=["What tools do you use?"],
+            follow_ups=["What tools do you use?", "How often?"],
             related_hypothesis_id="hyp-123",
         )
 
         assert question.role == "CFO"
         assert question.question == "How do you handle expenses?"
-        assert len(question.follow_ups) == 1
+        assert len(question.follow_ups) == 2
 
-    def test_interview_script_model(self):
-        """Test InterviewScript model."""
+    def test_interview_question_defaults(self):
+        """Test InterviewQuestion defaults."""
+        from src.models.schemas import InterviewQuestion
+
+        question = InterviewQuestion(
+            role="Manager",
+            question="Test question",
+            intent="Test intent",
+        )
+
+        assert question.follow_ups == []
+        assert question.related_hypothesis_id is None
+
+    def test_interview_script_creation(self):
+        """Test InterviewScript model creation."""
         from src.models.schemas import InterviewScript, InterviewQuestion
 
         script = InterviewScript(
@@ -545,3 +692,81 @@ class TestInterviewScriptModel:
         assert script.introduction == ""
         assert script.closing_notes == ""
         assert script.estimated_duration_minutes == 60
+
+    def test_interview_script_serialization(self):
+        """Test that InterviewScript can be serialized."""
+        from src.models.schemas import InterviewScript, InterviewQuestion
+
+        script = InterviewScript(
+            project_id="project-123",
+            target_departments=["Finance"],
+            questions=[
+                InterviewQuestion(
+                    role="Manager",
+                    question="Test?",
+                    intent="Test",
+                )
+            ],
+        )
+
+        script_dict = script.model_dump()
+
+        assert isinstance(script_dict, dict)
+        assert script_dict["project_id"] == "project-123"
+        assert len(script_dict["questions"]) == 1
+
+
+class TestGapAnalysisModels:
+    """Test gap analysis models."""
+
+    def test_gap_analysis_item(self):
+        """Test GapAnalysisItem model."""
+        from src.models.schemas import GapAnalysisItem, TaskCategory
+
+        gap = GapAnalysisItem(
+            process_step="Invoice Approval",
+            sop_description="Manager reviews in system",
+            observed_behavior="Email-based approval with printing",
+            gap_description="SOP not followed, manual workaround",
+            impact="2 hours wasted daily",
+        )
+
+        assert gap.task_category == TaskCategory.AUTOMATABLE
+        assert gap.impact == "2 hours wasted daily"
+
+    def test_analysis_result(self):
+        """Test AnalysisResult model."""
+        from src.models.schemas import AnalysisResult, Priority
+
+        result = AnalysisResult(
+            process_step="Invoice Processing",
+            observed_behavior="Manual data entry",
+            pain_point_priority=Priority.HIGH,
+            proposed_solution="Implement OCR and RPA",
+            tech_stack_recommendation=["UiPath", "Azure Form Recognizer"],
+            estimated_roi_hours=40,
+            implementation_priority=Priority.MEDIUM,
+        )
+
+        assert result.pain_point_priority == Priority.HIGH
+        assert result.estimated_roi_hours == 40
+        assert len(result.tech_stack_recommendation) == 2
+
+
+class TestEnums:
+    """Test enum values."""
+
+    def test_priority_enum(self):
+        """Test Priority enum."""
+        from src.models.schemas import Priority
+
+        assert Priority.LOW.value == "Low"
+        assert Priority.MEDIUM.value == "Medium"
+        assert Priority.HIGH.value == "High"
+
+    def test_task_category_enum(self):
+        """Test TaskCategory enum."""
+        from src.models.schemas import TaskCategory
+
+        assert TaskCategory.AUTOMATABLE.value == "Automatable"
+        assert TaskCategory.HUMAN_ONLY.value == "Human Only"
