@@ -111,10 +111,6 @@ test-cov: ## Run tests with coverage
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
 	@$(PYTHON) -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html
 
-test-install: ## Run installation tests only
-	@echo "$(BLUE)Running installation tests...$(NC)"
-	@$(PYTHON) -m pytest tests/test_installation.py -v
-
 test-unit: ## Run unit tests only
 	@echo "$(BLUE)Running unit tests...$(NC)"
 	@$(PYTHON) -m pytest tests/ -v -m "not integration"
