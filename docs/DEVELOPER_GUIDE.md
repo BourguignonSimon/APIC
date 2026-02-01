@@ -110,8 +110,7 @@ APIC/
 │   ├── test_agents.py       # Agent unit tests
 │   ├── test_api.py          # API endpoint tests
 │   ├── test_workflow.py     # Workflow integration tests
-│   ├── test_models.py       # Pydantic model tests
-│   └── test_installation.py # Installation automation tests
+│   └── test_models.py       # Pydantic model tests
 ├── scripts/
 │   ├── setup.sh             # Bash installation script
 │   ├── install_utils.py     # Python installation utilities
