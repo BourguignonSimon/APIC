@@ -2,10 +2,13 @@
 Consolidated tests for workflow orchestration, state management, and data models.
 
 This module contains integration tests including:
-- StateManager operations
+- StateManager operations (project and document management)
 - GraphState model
 - Workflow logic
 - Data model schemas
+
+Note: Workflow state is managed by LangGraph's built-in checkpointing.
+StateManager handles project/document metadata only.
 """
 
 import pytest
@@ -35,6 +38,7 @@ class TestStateManager:
         assert "id" in result
         assert result["client_name"] == sample_project_data["client_name"]
         assert result["project_name"] == sample_project_data["project_name"]
+        assert result["thread_id"] is None  # No thread_id initially
 
     def test_get_project_returns_none_for_nonexistent(self, state_manager):
         """Test that getting a non-existent project returns None."""
@@ -55,8 +59,8 @@ class TestStateManager:
         assert result["id"] == created["id"]
         assert result["client_name"] == sample_project_data["client_name"]
 
-    def test_save_state_persists_data(self, state_manager, sample_project_data):
-        """Test that save_state persists workflow state."""
+    def test_set_and_get_thread_id(self, state_manager, sample_project_data):
+        """Test that set_thread_id and get_thread_id work correctly."""
         project = state_manager.create_project(
             client_name=sample_project_data["client_name"],
             project_name=sample_project_data["project_name"],
@@ -64,53 +68,20 @@ class TestStateManager:
 
         project_id = project["id"]
         thread_id = str(uuid.uuid4())
-        state_data = {
-            "project_id": project_id,
-            "current_node": "ingestion",
-            "messages": ["Test message"],
-            "is_suspended": False,
-        }
 
-        state_manager.save_state(project_id, thread_id, state_data)
+        # Initially no thread_id
+        assert state_manager.get_thread_id(project_id) is None
 
-    def test_load_state_returns_state(self, state_manager, sample_project_data):
-        """Test that load_state returns the workflow state."""
-        project = state_manager.create_project(
-            client_name=sample_project_data["client_name"],
-            project_name=sample_project_data["project_name"],
-        )
+        # Set thread_id
+        state_manager.set_thread_id(project_id, thread_id)
 
-        project_id = project["id"]
-        thread_id = str(uuid.uuid4())
-        state_data = {
-            "project_id": project_id,
-            "current_node": "interview",
-            "is_suspended": True,
-            "suspension_reason": "Awaiting transcript",
-        }
-
-        state_manager.save_state(project_id, thread_id, state_data)
-        result = state_manager.load_state(project_id)
-
-        assert result is not None
-        assert result["project_id"] == project_id
-        assert result["current_node"] == "interview"
-
-    def test_get_thread_id(self, state_manager, sample_project_data):
-        """Test that get_thread_id returns the correct thread ID."""
-        project = state_manager.create_project(
-            client_name=sample_project_data["client_name"],
-            project_name=sample_project_data["project_name"],
-        )
-
-        project_id = project["id"]
-        thread_id = str(uuid.uuid4())
-        state_data = {"project_id": project_id, "current_node": "start"}
-
-        state_manager.save_state(project_id, thread_id, state_data)
-
+        # Verify it was set
         result = state_manager.get_thread_id(project_id)
         assert result == thread_id
+
+        # Also verify it's in the project data
+        project_data = state_manager.get_project(project_id)
+        assert project_data["thread_id"] == thread_id
 
     def test_update_project_status(self, state_manager, sample_project_data):
         """Test that update_project_status changes the project status."""
@@ -185,8 +156,8 @@ class TestStateManager:
         assert isinstance(result, list)
         assert len(result) >= 1
 
-    def test_get_suspended_projects(self, state_manager, sample_project_data):
-        """Test that get_suspended_projects returns suspended projects."""
+    def test_get_projects_by_status(self, state_manager, sample_project_data):
+        """Test that get_projects_by_status returns projects with matching status."""
         project = state_manager.create_project(
             client_name=sample_project_data["client_name"],
             project_name=sample_project_data["project_name"],
@@ -194,50 +165,22 @@ class TestStateManager:
 
         project_id = project["id"]
         thread_id = str(uuid.uuid4())
-        state_data = {
-            "project_id": project_id,
-            "current_node": "interview",
-            "is_suspended": True,
-            "suspension_reason": "Awaiting transcript",
-        }
 
-        state_manager.save_state(project_id, thread_id, state_data)
+        # Set thread_id and update status
+        state_manager.set_thread_id(project_id, thread_id)
+        state_manager.update_project_status(project_id, "interview_ready")
 
-        suspended = state_manager.get_suspended_projects()
+        # Get projects by status
+        interview_ready = state_manager.get_projects_by_status("interview_ready")
 
-        assert isinstance(suspended, list)
-        project_ids = [p["project_id"] for p in suspended]
+        assert isinstance(interview_ready, list)
+        project_ids = [p["id"] for p in interview_ready]
         assert project_id in project_ids
 
-    def test_state_persistence_across_workflow_steps(self, state_manager, sample_project_data):
-        """Test that state is properly persisted across workflow steps."""
-        project = state_manager.create_project(
-            client_name="Test Corp",
-            project_name="Test Project",
-        )
-
-        project_id = project["id"]
-        thread_id = str(uuid.uuid4())
-
-        state_data = {
-            "project_id": project_id,
-            "current_node": "ingestion",
-            "messages": [],
-            "is_suspended": False,
-        }
-        state_manager.save_state(project_id, thread_id, state_data)
-
-        state_data["current_node"] = "interview"
-        state_data["is_suspended"] = True
-        state_data["messages"] = ["Ingestion complete", "Hypotheses generated"]
-        state_manager.save_state(project_id, thread_id, state_data)
-
-        retrieved_state = state_manager.load_state(project_id)
-
-        assert retrieved_state is not None
-        assert retrieved_state["current_node"] == "interview"
-        assert retrieved_state["is_suspended"] is True
-        assert len(retrieved_state["messages"]) == 2
+        # Verify thread_id is included
+        for p in interview_ready:
+            if p["id"] == project_id:
+                assert p["thread_id"] == thread_id
 
 
 # ============================================================================

@@ -1,13 +1,13 @@
 """
 LangGraph Workflow Orchestration
 The Consultant Graph - manages the multi-agent workflow with human breakpoint.
+
+Uses LangGraph's built-in checkpointing for state persistence.
 """
 
 import logging
-from typing import Any, Dict, Optional, TypedDict, Annotated
-from datetime import datetime
-import json
-import operator
+from typing import Any, Dict, List, Optional, TypedDict
+import os
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -71,6 +71,46 @@ class WorkflowState(TypedDict):
     messages: list
 
 
+def create_checkpointer(use_postgres: bool = False, database_url: Optional[str] = None):
+    """
+    Create a checkpointer for LangGraph state persistence.
+
+    Args:
+        use_postgres: If True, use PostgreSQL checkpointer (requires langgraph-checkpoint-postgres)
+        database_url: Database URL for PostgreSQL checkpointer
+
+    Returns:
+        A checkpointer instance (MemorySaver or PostgresSaver)
+    """
+    if use_postgres:
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            db_url = database_url or settings.DATABASE_URL
+            # Convert SQLAlchemy URL format to psycopg format if needed
+            if db_url.startswith("postgresql://"):
+                conn_string = db_url
+            elif db_url.startswith("postgres://"):
+                conn_string = db_url.replace("postgres://", "postgresql://", 1)
+            else:
+                # For SQLite or other URLs, fall back to MemorySaver
+                logger.warning("Database URL is not PostgreSQL, using MemorySaver")
+                return MemorySaver()
+
+            checkpointer = PostgresSaver.from_conn_string(conn_string)
+            checkpointer.setup()  # Create tables if they don't exist
+            logger.info("Using PostgresSaver for checkpointing")
+            return checkpointer
+        except ImportError:
+            logger.warning("langgraph-checkpoint-postgres not installed, using MemorySaver")
+            return MemorySaver()
+        except Exception as e:
+            logger.warning(f"Failed to create PostgresSaver: {e}, using MemorySaver")
+            return MemorySaver()
+    else:
+        logger.info("Using MemorySaver for checkpointing")
+        return MemorySaver()
+
+
 class ConsultantGraph:
     """
     The Consultant Graph workflow orchestrator.
@@ -83,16 +123,19 @@ class ConsultantGraph:
     4. Gap Analyst
     5. Solution Architect
     6. Reporting Engine
+
+    State is persisted using LangGraph's built-in checkpointing.
     """
 
-    def __init__(self, checkpointer: Optional[MemorySaver] = None):
+    def __init__(self, checkpointer=None, use_postgres: bool = False):
         """
         Initialize the Consultant Graph.
 
         Args:
-            checkpointer: State checkpointer for persistence
+            checkpointer: State checkpointer for persistence. If None, one is created.
+            use_postgres: If True and no checkpointer provided, use PostgreSQL checkpointer
         """
-        self.checkpointer = checkpointer or MemorySaver()
+        self.checkpointer = checkpointer or create_checkpointer(use_postgres=use_postgres)
 
         # Load agent configurations
         agent_config_registry = get_agent_config()
@@ -302,7 +345,7 @@ class ConsultantGraph:
         """
         config = {"configurable": {"thread_id": thread_id}}
 
-        # Get current state
+        # Get current state from checkpointer
         state_snapshot = self.workflow.get_state(config)
         current_state = dict(state_snapshot.values)
 
@@ -321,7 +364,7 @@ class ConsultantGraph:
 
     def get_state(self, thread_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get current state for a thread.
+        Get current state for a thread from the checkpointer.
 
         Args:
             thread_id: Thread ID
@@ -337,12 +380,58 @@ class ConsultantGraph:
             logger.error(f"Error getting state: {e}")
             return None
 
+    def is_suspended(self, thread_id: str) -> bool:
+        """
+        Check if workflow is suspended for a thread.
 
-def create_workflow() -> ConsultantGraph:
+        Args:
+            thread_id: Thread ID
+
+        Returns:
+            True if suspended, False otherwise
+        """
+        state = self.get_state(thread_id)
+        if state:
+            return state.get("is_suspended", False)
+        return False
+
+    def get_workflow_status(self, thread_id: str) -> Dict[str, Any]:
+        """
+        Get workflow status information.
+
+        Args:
+            thread_id: Thread ID
+
+        Returns:
+            Status information including current_node, is_suspended, etc.
+        """
+        state = self.get_state(thread_id)
+        if not state:
+            return {
+                "current_node": "not_started",
+                "is_suspended": False,
+                "suspension_reason": None,
+                "messages": [],
+                "errors": [],
+            }
+
+        return {
+            "current_node": state.get("current_node", "unknown"),
+            "is_suspended": state.get("is_suspended", False),
+            "suspension_reason": state.get("suspension_reason"),
+            "messages": state.get("messages", []),
+            "errors": state.get("errors", []),
+        }
+
+
+def create_workflow(use_postgres: bool = False) -> ConsultantGraph:
     """
     Factory function to create a new ConsultantGraph instance.
+
+    Args:
+        use_postgres: If True, use PostgreSQL for state checkpointing
 
     Returns:
         Configured ConsultantGraph
     """
-    return ConsultantGraph()
+    return ConsultantGraph(use_postgres=use_postgres)
