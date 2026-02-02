@@ -221,22 +221,10 @@ class SolutionArchitectAgent(BaseAgent):
             solutions_data = json.loads(content)
 
             solutions = []
+            priority_map = {"Low": Priority.LOW, "High": Priority.HIGH}
             for s_data in solutions_data:
-                # Map pain point priority string to enum
-                pain_priority_str = s_data.get("pain_point_priority", "Medium")
-                pain_priority = Priority.MEDIUM
-                if pain_priority_str == "Low":
-                    pain_priority = Priority.LOW
-                elif pain_priority_str == "High":
-                    pain_priority = Priority.HIGH
-
-                # Map implementation priority string to enum
-                impl_priority_str = s_data.get("implementation_priority", "Medium")
-                impl_priority = Priority.MEDIUM
-                if impl_priority_str == "Low":
-                    impl_priority = Priority.LOW
-                elif impl_priority_str == "High":
-                    impl_priority = Priority.HIGH
+                pain_priority = priority_map.get(s_data.get("pain_point_priority"), Priority.MEDIUM)
+                impl_priority = priority_map.get(s_data.get("implementation_priority"), Priority.MEDIUM)
 
                 solution = AnalysisResult(
                     process_step=s_data.get("process_step", "Unknown"),

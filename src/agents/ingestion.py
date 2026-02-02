@@ -443,25 +443,6 @@ class IngestionAgent(BaseAgent):
         response = await self.llm.ainvoke(prompt)
         return response.content
 
-    async def _get_or_generate_summary(
-        self,
-        document_id: str,
-        content: str,
-        filename: str = "document"
-    ) -> str:
-        """
-        Generate a summary for the document.
-
-        Args:
-            document_id: Unique document identifier
-            content: Document content
-            filename: Name of the file
-
-        Returns:
-            Document summary
-        """
-        return await self._generate_summary(content, filename)
-
     async def _store_in_vector_db(
         self,
         chunks: List[LCDocument],
