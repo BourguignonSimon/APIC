@@ -172,119 +172,51 @@ class InterviewArchitectAgent(BaseAgent):
                     hypotheses = self._get_generic_hypotheses()
                     self.log_info(f"Tier 3 ACTIVATED: Using {len(hypotheses)} generic hypotheses to ensure interview generation")
 
-            # ============================================================
-            # COMPREHENSIVE CONTEXT GATHERING
-            # ============================================================
             # Gather ALL available information for rich interview generation
-            # This includes documents, summaries, project info, and hypotheses
-            # The comprehensive context ensures interview questions reference
-            # actual document content and are industry-appropriate
-            self.log_info("Gathering comprehensive context from all available sources")
             comprehensive_context = self._gather_comprehensive_context(state, hypotheses)
 
-            # Log context summary for debugging and monitoring
-            self.log_info(
-                f"Context gathered: {comprehensive_context['documents_count']} documents, "
-                f"{comprehensive_context['summaries_count']} summaries, "
-                f"{len(hypotheses)} hypotheses"
-            )
-
-            # ============================================================
-            # HYPOTHESIS ANALYSIS
-            # ============================================================
-            # Analyze ALL available information (not just hypotheses) to identify:
-            # - Key themes and patterns
-            # - Priority areas for investigation
-            # - Root cause patterns
-            # - "Dull, Dirty, Dangerous" task indicators
-            # This analysis guides all subsequent question generation
-            self.log_info("Analyzing hypotheses with comprehensive context to identify key themes and priorities")
+            # Analyze hypotheses to identify key themes and priorities
             analysis = await self._analyze_hypotheses(
                 hypotheses,
                 target_departments,
                 comprehensive_context  # Includes documents, summaries, project info
             )
 
-            # ============================================================
-            # CUSTOMER CONTEXT GENERATION
-            # ============================================================
-            # Create a rich customer profile that combines:
-            # - Project metadata (client, industry, departments)
-            # - Document-derived insights
-            # - Hypothesis patterns
-            # This context personalizes interview questions
-            self.log_info("Generating customer context from project data and document analysis")
+            # Generate customer context from project data and document analysis
             customer_context = await self._generate_customer_context(
                 state,
                 hypotheses,
                 analysis,
             )
 
-            # ============================================================
-            # DIAGNOSTIC LEADS GENERATION
-            # ============================================================
             # Convert hypotheses into actionable diagnostic leads
-            # Each lead represents a specific area to probe during interviews
-            # Organized by priority and theme from the analysis
-            self.log_info("Converting hypotheses to diagnostic leads for structured investigation")
             diagnostic_leads = await self._generate_diagnostic_leads(
                 hypotheses,
                 analysis,
             )
 
-            # ============================================================
-            # TARGET ROLE IDENTIFICATION
-            # ============================================================
-            # Determine which roles/positions should be interviewed based on:
-            # - Process areas identified in hypotheses
-            # - Department targets from project
-            # - Analysis priorities
-            # Ensures interviews target the right people with the right expertise
-            self.log_info("Determining target roles for interviews based on process areas")
+            # Determine target roles for interviews
             target_roles = await self._determine_target_roles(
                 hypotheses,
                 target_departments,
                 analysis,
             )
 
-            # ============================================================
-            # VALIDATION QUESTIONS GENERATION
-            # ============================================================
-            # Generate role-specific questions to validate hypotheses
-            # These are hypothesis-driven questions that:
-            # - Test the accuracy of identified inefficiencies
-            # - Probe for evidence and examples
-            # - Assess severity and impact
-            self.log_info("Generating validation questions to test hypotheses with stakeholders")
+            # Generate validation questions
             questions = await self._generate_questions(
                 hypotheses,
                 target_roles,
                 analysis,
             )
 
-            # ============================================================
-            # DISCOVERY QUESTIONS GENERATION
-            # ============================================================
-            # Generate open-ended discovery questions to find:
-            # - Issues not captured in hypotheses
-            # - Hidden inefficiencies
-            # - Opportunities for improvement
-            # These complement validation questions with exploratory probing
-            self.log_info("Generating discovery questions for finding new opportunities")
+            # Generate discovery questions
             discovery_questions = await self._generate_discovery_questions(
                 hypotheses,
                 target_roles,
                 analysis,
             )
 
-            # ============================================================
-            # INTERVIEW INTRODUCTION GENERATION
-            # ============================================================
-            # Create a tailored introduction that:
-            # - Sets context for the interviewee
-            # - Explains the purpose based on analysis themes
-            # - Builds rapport and trust
-            self.log_info("Generating tailored interview introduction")
+            # Generate interview introduction
             introduction = await self._generate_introduction(
                 hypotheses,
                 target_departments,
@@ -345,7 +277,6 @@ class InterviewArchitectAgent(BaseAgent):
                         project_data
                     )
                     state["interview_script_file"] = script_file_path
-                    self.log_info(f"Interview script file generated: {script_file_path}")
             except Exception as e:
                 self.log_error(f"Failed to generate script file: {e}")
                 state["interview_script_file"] = None
@@ -483,9 +414,7 @@ Return ONLY the JSON object."""
                     content = content[4:]
                 content = content.strip()
 
-            analysis = json.loads(content)
-            self.log_info(f"Analysis complete: identified {len(analysis.get('key_themes', []))} key themes")
-            return analysis
+            return json.loads(content)
 
         except Exception as e:
             self.log_error(f"Failed to parse analysis: {e}")
@@ -1121,16 +1050,11 @@ Return ONLY the JSON object."""
         ])
 
         project = state.get("project", {})
-        if isinstance(project, dict):
-            client_name = project.get("client_name", "Unknown Client")
-            project_name = project.get("project_name", "Unknown Project")
-            description = project.get("description", "No description provided")
-            departments = project.get("target_departments", [])
-        else:
-            client_name = getattr(project, "client_name", "Unknown Client")
-            project_name = getattr(project, "project_name", "Unknown Project")
-            description = getattr(project, "description", "No description provided")
-            departments = getattr(project, "target_departments", [])
+        get_val = lambda obj, key, default: obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+        client_name = get_val(project, "client_name", "Unknown Client")
+        project_name = get_val(project, "project_name", "Unknown Project")
+        description = get_val(project, "description", "No description provided")
+        departments = get_val(project, "target_departments", [])
 
         document_summaries = state.get("document_summaries", [])
         summaries_text = "\n".join(document_summaries[:5]) if document_summaries else "No document summaries available"
@@ -1164,8 +1088,6 @@ Return ONLY the JSON object."""
                 content = content.strip()
 
             context_data = json.loads(content)
-            self.log_info("Customer context generated successfully")
-
             return {
                 "business_overview": context_data.get("business_overview", ""),
                 "organization_structure": context_data.get("organization_structure", ""),
@@ -1296,7 +1218,6 @@ Return ONLY the JSON array."""
                 )
                 leads.append(lead)
 
-            self.log_info(f"Generated {len(leads)} diagnostic leads")
             return leads
 
         except Exception as e:
@@ -1417,7 +1338,6 @@ Return ONLY the JSON array."""
                 )
                 questions.append(question)
 
-            self.log_info(f"Generated {len(questions)} discovery questions")
             return questions
 
         except Exception as e:
@@ -1497,8 +1417,6 @@ Return ONLY the JSON array."""
                 document_summaries='\n\n'.join(document_summaries)
             )
 
-            self.log_info("Using AI (Gemini/OpenAI/Anthropic) to generate hypotheses from document summaries")
-
             # Use SystemMessage + HumanMessage for chat models
             from langchain_core.messages import SystemMessage, HumanMessage
             messages = [
@@ -1540,7 +1458,6 @@ Return ONLY the JSON array."""
                 )
                 hypotheses.append(hypothesis)
 
-            self.log_info(f"Successfully generated {len(hypotheses)} hypotheses using AI")
             return hypotheses
 
         except Exception as e:

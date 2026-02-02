@@ -55,12 +55,6 @@ class BaseAgent(ABC):
 
         self.logger = logging.getLogger(f"apic.agents.{name}")
 
-        # Log configuration info
-        if agent_config:
-            self.log_debug(f"Initialized with custom configuration")
-            if agent_config.model:
-                self.log_debug(f"Using custom model settings: temp={agent_config.model.temperature}")
-
     @abstractmethod
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -100,9 +94,11 @@ class BaseAgent(ABC):
         Returns:
             Prompt template string or None
         """
-        if self.agent_config and self.agent_config.prompts:
-            if prompt_name == "system" and self.agent_config.prompts.system:
-                return self.agent_config.prompts.system
-            if self.agent_config.prompts.templates and prompt_name in self.agent_config.prompts.templates:
-                return self.agent_config.prompts.templates[prompt_name]
+        prompts = getattr(self.agent_config, 'prompts', None) if self.agent_config else None
+        if not prompts:
+            return default
+        if prompt_name == "system" and prompts.system:
+            return prompts.system
+        if prompts.templates and prompt_name in prompts.templates:
+            return prompts.templates[prompt_name]
         return default

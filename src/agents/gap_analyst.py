@@ -132,7 +132,7 @@ class GapAnalystAgent(BaseAgent):
                 for doc in results:
                     sop_content.append(doc.page_content)
             except Exception as e:
-                self.log_debug(f"SOP query failed: {e}")
+                self.log_error(f"SOP query failed: {e}")
 
         return "\n\n".join(sop_content) if sop_content else "No SOP content retrieved"
 
@@ -340,7 +340,7 @@ class GapAnalystAgent(BaseAgent):
             return gaps
 
         except Exception as e:
-            self.log_debug(f"Classification parsing failed: {e}")
+            self.log_error(f"Classification parsing failed: {e}")
             return gaps
 
     async def _assess_severity(
@@ -348,66 +348,9 @@ class GapAnalystAgent(BaseAgent):
         gaps: List[GapAnalysisItem],
     ) -> List[GapAnalysisItem]:
         """
-        Assess severity of each gap.
+        Pass-through method for severity assessment.
 
-        Args:
-            gaps: List of classified gaps
-
-        Returns:
-            Gaps with severity assessment
+        Note: GapAnalysisItem doesn't have a severity field.
+        Severity is assessed in Node 5 (Solution Architect) where it's used for prioritization.
         """
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a business analyst. Assess the severity of each
-            process gap based on:
-
-            - LOW: Minor inconvenience, minimal time waste, no errors
-            - MEDIUM: Noticeable time waste, occasional errors, some frustration
-            - HIGH: Significant time waste, frequent errors, major pain point
-            - CRITICAL: Business risk, compliance issues, major financial impact
-            """),
-            ("human", """Assess severity for each gap:
-
-            {gaps}
-
-            Return a JSON array:
-            [
-                {{
-                    "process_step": "step name",
-                    "severity": "Low" | "Medium" | "High" | "Critical"
-                }}
-            ]
-
-            Return ONLY the JSON array."""),
-        ])
-
-        gaps_text = "\n".join([
-            f"- {g.process_step}: {g.gap_description} (Impact: {g.impact})"
-            for g in gaps
-        ])
-
-        response = await self.llm.ainvoke(
-            prompt.format_messages(gaps=gaps_text)
-        )
-
-        try:
-            content = response.content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            severities = json.loads(content)
-            severity_map = {
-                s["process_step"]: s["severity"]
-                for s in severities
-            }
-
-            # Note: GapAnalysisItem doesn't have severity field
-            # This would be used in AnalysisResult in Node 5
-
-            return gaps
-
-        except Exception as e:
-            self.log_debug(f"Severity parsing failed: {e}")
-            return gaps
+        return gaps
